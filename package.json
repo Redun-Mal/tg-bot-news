@@ -1,0 +1,28 @@
+{
+  "name": "tg-bot-news",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "services/*"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:migrate": "node-pg-migrate --migration-file-language ts -d DATABASE_URL up",
+    "db:migrate:down": "node-pg-migrate --migration-file-language ts -d DATABASE_URL down",
+    "db:seed": "node db/seed.js"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.1.0",
+    "node-pg-migrate": "^7.6.1",
+    "pg": "^8.12.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.5.0"
+  }
+}

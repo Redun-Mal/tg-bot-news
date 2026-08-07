@@ -1,0 +1,11 @@
+.env
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+coverage/
+n8n_data/
+pgdata/
