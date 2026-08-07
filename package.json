@@ -11,9 +11,9 @@
     "format:check": "prettier --check .",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "db:migrate": "node-pg-migrate --migration-file-language ts -d DATABASE_URL up",
-    "db:migrate:down": "node-pg-migrate --migration-file-language ts -d DATABASE_URL down",
-    "db:seed": "node db/seed.js"
+    "db:migrate": "set -a; . ./.env; set +a; DATABASE_URL=\"$DATABASE_URL_HOST\" node-pg-migrate -m db/migrations up",
+    "db:migrate:down": "set -a; . ./.env; set +a; DATABASE_URL=\"$DATABASE_URL_HOST\" node-pg-migrate -m db/migrations down",
+    "db:seed": "set -a; . ./.env; set +a; DATABASE_URL=\"$DATABASE_URL_HOST\" node db/seed.js"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.0.0",

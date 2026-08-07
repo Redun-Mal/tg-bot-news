@@ -18,6 +18,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Bound to loopback only — dev/migration convenience, not exposed on the LAN.
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
     networks:
       - tg-news-net
     healthcheck:
@@ -47,7 +51,9 @@ services:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      # Separate database from the app schema (see db/init/001-create-n8n-db.sh) —
+      # n8n's own ~25 internal tables must never mix with our application tables.
+      DB_POSTGRESDB_DATABASE: n8n
       DB_POSTGRESDB_USER: ${POSTGRES_USER}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       N8N_HOST: ${N8N_HOST}
