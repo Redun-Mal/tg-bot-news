@@ -1,0 +1,251 @@
+{
+  "name": "health_check",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "DRAFT — hand-authored, unverified against a live n8n instance (no n8n available in the dev environment that produced this). Import, review every node's parameters, and test-execute before trusting it. See docs/workflows/health_check.md for the intended behavior this is trying to encode.",
+        "height": 160,
+        "width": 320
+      },
+      "id": "sticky-warning",
+      "name": "Draft warning",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-200, -80]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 5 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-200, 120]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT 1;"
+      },
+      "id": "pg-check",
+      "name": "Postgres reachable?",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [40, 120],
+      "credentials": {
+        "postgres": { "id": "REPLACE_ME", "name": "Postgres — tg_news" }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const pgOk = $input.first().json.error === undefined;\nreturn [{ json: { postgres: pgOk } }];"
+      },
+      "id": "code-pg-result",
+      "name": "Record Postgres result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 120]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.RSS_BASE_URL }}/healthz",
+        "options": { "timeout": 5000 }
+      },
+      "id": "http-rsshub",
+      "name": "RSSHub /healthz",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 120],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Record Postgres result').first().json;\nconst rsshubOk = $input.first().json.error === undefined;\nreturn [{ json: { ...prev, rsshub: rsshubOk } }];"
+      },
+      "id": "code-rsshub-result",
+      "name": "Record RSSHub result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 120]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.HELPER_API_URL }}/health",
+        "options": { "timeout": 5000 }
+      },
+      "id": "http-helper-api",
+      "name": "helper-api /health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 120],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Record RSSHub result').first().json;\nconst helperOk = $input.first().json.error === undefined;\nreturn [{ json: { ...prev, helper_api: helperOk } }];"
+      },
+      "id": "code-helper-result",
+      "name": "Record helper-api result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1240, 120]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT count(*)::int AS recent_errors FROM workflow_logs WHERE workflow_name = 'classify_with_claude' AND level = 'error' AND created_at > now() - interval '30 minutes';"
+      },
+      "id": "pg-claude-errors",
+      "name": "Recent Claude errors",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1480, 120],
+      "credentials": {
+        "postgres": { "id": "REPLACE_ME", "name": "Postgres — tg_news" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Record helper-api result').first().json;\nconst claudeRecentErrors = $input.first().json.recent_errors ?? 0;\nconst healthy = prev.postgres && prev.rsshub && prev.helper_api && claudeRecentErrors < 3;\nreturn [{ json: { ...prev, claude_recent_errors: claudeRecentErrors, healthy } }];"
+      },
+      "id": "code-status",
+      "name": "Build status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1720, 120]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT metadata FROM workflow_logs WHERE workflow_name = 'health_check' ORDER BY created_at DESC LIMIT 1;"
+      },
+      "id": "pg-previous",
+      "name": "Previous check result",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1960, 120],
+      "credentials": {
+        "postgres": { "id": "REPLACE_ME", "name": "Postgres — tg_news" }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const status = $('Build status').first().json;\nconst prevRow = $input.first().json;\nconst prevHealthy = prevRow?.metadata?.healthy;\nconst stateChanged = prevHealthy !== undefined && prevHealthy !== status.healthy;\nreturn [{ json: { ...status, stateChanged, prevHealthy: prevHealthy ?? null } }];"
+      },
+      "id": "code-compare",
+      "name": "Compare to previous",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 120]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "workflow_logs",
+        "columns": "workflow_name, level, message, metadata",
+        "additionalFields": {}
+      },
+      "id": "pg-insert-log",
+      "name": "Insert workflow_logs row",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2440, 120],
+      "credentials": {
+        "postgres": { "id": "REPLACE_ME", "name": "Postgres — tg_news" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Compare to previous').first().json.stateChanged }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-state-changed",
+      "name": "State changed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2680, 120]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_ALLOWED_USER_ID }}",
+        "text": "={{ $('Compare to previous').first().json.healthy ? '✅ Всё снова работает.' : '⚠️ Проблема с сервисом: ' + JSON.stringify($('Compare to previous').first().json) }}"
+      },
+      "id": "telegram-alert",
+      "name": "Send Telegram alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2920, 40],
+      "credentials": {
+        "telegramApi": { "id": "REPLACE_ME", "name": "Telegram Bot" }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "noop-no-change",
+      "name": "No change, do nothing",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2920, 220]
+    }
+  ],
+  "connections": {
+    "Every 5 minutes": { "main": [[{ "node": "Postgres reachable?", "type": "main", "index": 0 }]] },
+    "Postgres reachable?": {
+      "main": [[{ "node": "Record Postgres result", "type": "main", "index": 0 }]]
+    },
+    "Record Postgres result": {
+      "main": [[{ "node": "RSSHub /healthz", "type": "main", "index": 0 }]]
+    },
+    "RSSHub /healthz": {
+      "main": [[{ "node": "Record RSSHub result", "type": "main", "index": 0 }]]
+    },
+    "Record RSSHub result": {
+      "main": [[{ "node": "helper-api /health", "type": "main", "index": 0 }]]
+    },
+    "helper-api /health": {
+      "main": [[{ "node": "Record helper-api result", "type": "main", "index": 0 }]]
+    },
+    "Record helper-api result": {
+      "main": [[{ "node": "Recent Claude errors", "type": "main", "index": 0 }]]
+    },
+    "Recent Claude errors": {
+      "main": [[{ "node": "Build status", "type": "main", "index": 0 }]]
+    },
+    "Build status": {
+      "main": [[{ "node": "Previous check result", "type": "main", "index": 0 }]]
+    },
+    "Previous check result": {
+      "main": [[{ "node": "Compare to previous", "type": "main", "index": 0 }]]
+    },
+    "Compare to previous": {
+      "main": [[{ "node": "Insert workflow_logs row", "type": "main", "index": 0 }]]
+    },
+    "Insert workflow_logs row": {
+      "main": [[{ "node": "State changed?", "type": "main", "index": 0 }]]
+    },
+    "State changed?": {
+      "main": [
+        [{ "node": "Send Telegram alert", "type": "main", "index": 0 }],
+        [{ "node": "No change, do nothing", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
