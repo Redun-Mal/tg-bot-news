@@ -203,7 +203,9 @@
     }
   ],
   "connections": {
-    "Every 5 minutes": { "main": [[{ "node": "Postgres reachable?", "type": "main", "index": 0 }]] },
+    "Every 5 minutes": {
+      "main": [[{ "node": "Postgres reachable?", "type": "main", "index": 0 }]]
+    },
     "Postgres reachable?": {
       "main": [[{ "node": "Record Postgres result", "type": "main", "index": 0 }]]
     },

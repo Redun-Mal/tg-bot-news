@@ -48,7 +48,9 @@ describe('splitIntoTelegramMessages', () => {
     const result = splitIntoTelegramMessages('📰 Title', [block, block, block, block]);
     expect(result.length).toBeGreaterThan(1);
     expect(result[0]).toMatch(/^📰 Title \(1\/\d+\)/);
-    expect(result[result.length - 1]).toMatch(new RegExp(`\\(${result.length}/${result.length}\\)`));
+    expect(result[result.length - 1]).toMatch(
+      new RegExp(`\\(${result.length}/${result.length}\\)`),
+    );
     for (const message of result) {
       expect(message.length).toBeLessThanOrEqual(4096);
     }

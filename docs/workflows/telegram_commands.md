@@ -15,7 +15,7 @@ A raw Telegram `message` update.
 ## Node sequence
 
 1. **Telegram Trigger**.
-2. **Code** — auth gate: `String(message.from.id) === String($env.TELEGRAM_ALLOWED_USER_ID)`. This is the same comparison Stage D's `isAllowedUser` unit-tests already cover; it's inlined here rather than round-tripped to helper-api because it runs on *every single incoming message* — a network hop for a one-line string comparison isn't worth it. The tested version in `services/helper-api/src/lib/auth.ts` is the source of truth for the logic; this must stay in sync with it.
+2. **Code** — auth gate: `String(message.from.id) === String($env.TELEGRAM_ALLOWED_USER_ID)`. This is the same comparison Stage D's `isAllowedUser` unit-tests already cover; it's inlined here rather than round-tripped to helper-api because it runs on _every single incoming message_ — a network hop for a one-line string comparison isn't worth it. The tested version in `services/helper-api/src/lib/auth.ts` is the source of truth for the logic; this must stay in sync with it.
 3. **IF** — allowed?
    - **false** → **NoOp** → end. **Silently ignored, no reply sent** (per the approved plan's Decision D) — optionally a `debug`-level `workflow_logs` row for observability, never a message back to the sender. This is the very first node after the trigger, deliberately, so nothing downstream ever runs for an unauthorized sender.
    - **true** → continue.
@@ -55,4 +55,4 @@ NL intent classification call: 3 tries, n8n's built-in fixed-interval retry (sam
 
 ## Anti-duplicate protection
 
-Not directly applicable to most of this workflow — `/news` and NL-query reads are pull requests, meant to show the same data again on repeat. The one path that *does* need it (`/digest`) delegates entirely to `daily_digest`, which already carries the `deliveries` reserve pattern; this workflow doesn't duplicate that logic.
+Not directly applicable to most of this workflow — `/news` and NL-query reads are pull requests, meant to show the same data again on repeat. The one path that _does_ need it (`/digest`) delegates entirely to `daily_digest`, which already carries the `deliveries` reserve pattern; this workflow doesn't duplicate that logic.

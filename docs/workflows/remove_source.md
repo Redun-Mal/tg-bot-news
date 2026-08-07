@@ -13,6 +13,7 @@ Handle `/remove_source <id|url>`. **Soft-delete only** — sets `status = 'remov
 ```json
 { "telegramUserId": 123456789, "idOrUrl": "example_channel" }
 ```
+
 `idOrUrl` may be a numeric `sources.id`, a bare channel username, or a full `t.me/...` URL.
 
 ## Node sequence

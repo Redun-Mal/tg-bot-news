@@ -13,6 +13,7 @@ Handle `/set_interest <topic>` and `/remove_interest <topic>`, backing `user_int
 ```json
 { "telegramUserId": 123456789, "action": "add", "topic": "Rust" }
 ```
+
 `action` is `"add"` (from `/set_interest`) or `"remove"` (from `/remove_interest`).
 
 ## Node sequence

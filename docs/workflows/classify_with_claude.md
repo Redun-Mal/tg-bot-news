@@ -38,7 +38,7 @@ None (self-triggered).
 11. **IF** — `valid == false`?
     - **true**: **Postgres — Insert** into `workflow_logs` (`level = 'error'`, `metadata = { postId, errors }`). Post stays unresolved — picked up again next cycle. Loop to next post. (A response that's malformed every single cycle would retry forever at MVP scale; acceptable for a single-user system with modest volume — worth revisiting only if it turns out to happen often in practice.)
     - **false**: continue to step 12.
-12. **Postgres — Execute Query** — level-4 dedup: does a recent (48h) `news_item` already cover this story, per Claude's *own* title/summary rather than the raw post text?
+12. **Postgres — Execute Query** — level-4 dedup: does a recent (48h) `news_item` already cover this story, per Claude's _own_ title/summary rather than the raw post text?
     ```sql
     SELECT id FROM news_items
     WHERE created_at > now() - interval '48 hours'

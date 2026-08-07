@@ -1,9 +1,4 @@
-export type FilterReason =
-  | 'empty'
-  | 'too_short'
-  | 'advertisement'
-  | 'giveaway'
-  | 'promo_code';
+export type FilterReason = 'empty' | 'too_short' | 'advertisement' | 'giveaway' | 'promo_code';
 
 export interface FilterResult {
   keep: boolean;

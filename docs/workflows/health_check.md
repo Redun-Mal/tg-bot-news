@@ -17,7 +17,7 @@ None (self-triggered).
 ## Node sequence
 
 1. **Schedule Trigger**.
-2. **Postgres — Execute Query**: `SELECT 1` (Postgres reachability is proven by this node simply not failing — no branching needed here, its own success/failure *is* the signal, handled at step 6).
+2. **Postgres — Execute Query**: `SELECT 1` (Postgres reachability is proven by this node simply not failing — no branching needed here, its own success/failure _is_ the signal, handled at step 6).
 3. **HTTP Request** — `GET {{RSS_BASE_URL}}/healthz`, `onError: continueRegularOutput` (don't abort the workflow — a downed dependency is exactly the case this workflow exists to detect and report, not crash on).
 4. **HTTP Request** — `GET {{HELPER_API_URL}}/health`, same `onError` setting.
 5. **Postgres — Execute Query**: `SELECT count(*) FROM workflow_logs WHERE workflow_name = 'classify_with_claude' AND level = 'error' AND created_at > now() - interval '30 minutes'`.

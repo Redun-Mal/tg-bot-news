@@ -28,7 +28,7 @@ None (self-triggered).
      AND d.id IS NULL
    ORDER BY ni.importance DESC, ni.relevance DESC;
    ```
-   Deliberately checks **any** `delivery_type`, not just `'digest'` — importance/relevance only ever gate *instant* eligibility (`send_instant_alerts.md`); a borderline item (say, `importance = 3` but `relevance = 0.6`, which qualifies for neither the literal "instant" rule nor a clean "importance 1-2" digest bucket) must still end up *somewhere*. Checking against every delivery type, rather than trying to keep the two buckets perfectly disjoint by importance alone, is what actually guarantees "never send the same news twice" — the spec's stronger, overriding rule.
+   Deliberately checks **any** `delivery_type`, not just `'digest'` — importance/relevance only ever gate _instant_ eligibility (`send_instant_alerts.md`); a borderline item (say, `importance = 3` but `relevance = 0.6`, which qualifies for neither the literal "instant" rule nor a clean "importance 1-2" digest bucket) must still end up _somewhere_. Checking against every delivery type, rather than trying to keep the two buckets perfectly disjoint by importance alone, is what actually guarantees "never send the same news twice" — the spec's stronger, overriding rule.
 3. **IF** — zero rows?
    - **true** → **Telegram — Send Message**: `"📰 Сегодня новостей нет."` → end.
    - **false** → continue.
@@ -58,4 +58,4 @@ Each Telegram send: 3 tries, n8n's built-in fixed-interval retry. The `Wait` nod
 
 ## Anti-duplicate protection
 
-Same reserve-before-send pattern as `send_instant_alerts`, applied per-item at step 5 before any formatting/sending happens — an item that already has *any* delivery row (instant or digest) never reaches `/format-digest` in the first place, and the `UNIQUE(news_item_id, telegram_user_id, delivery_type)` constraint is the hard backstop against overlapping runs.
+Same reserve-before-send pattern as `send_instant_alerts`, applied per-item at step 5 before any formatting/sending happens — an item that already has _any_ delivery row (instant or digest) never reaches `/format-digest` in the first place, and the `UNIQUE(news_item_id, telegram_user_id, delivery_type)` constraint is the hard backstop against overlapping runs.

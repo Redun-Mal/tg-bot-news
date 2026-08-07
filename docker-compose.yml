@@ -61,6 +61,14 @@ services:
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE}
       TZ: ${TZ}
+      # Non-secret operational config read via $env in workflow expressions
+      # (see docs/workflows/*.md). TELEGRAM_BOT_TOKEN and CLAUDE_API_KEY are
+      # deliberately NOT here — those live only in n8n's own encrypted
+      # credential store, configured via the UI. See n8n/credential-setup.md.
+      RSS_BASE_URL: ${RSS_BASE_URL}
+      HELPER_API_URL: ${HELPER_API_URL}
+      TELEGRAM_ALLOWED_USER_ID: ${TELEGRAM_ALLOWED_USER_ID}
+      CLAUDE_MODEL: ${CLAUDE_MODEL}
     ports:
       - '${N8N_PORT}:5678'
     volumes:

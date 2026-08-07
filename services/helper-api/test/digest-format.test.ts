@@ -56,9 +56,7 @@ describe('formatDigest', () => {
     }
     // 6 categories * 5 items = 30 available, but only 25 should appear.
     const messages = formatDigest(items);
-    const totalNumberedLines = messages
-      .join('\n')
-      .match(/^\d+\. /gm)?.length;
+    const totalNumberedLines = messages.join('\n').match(/^\d+\. /gm)?.length;
     expect(totalNumberedLines).toBe(25);
   });
 

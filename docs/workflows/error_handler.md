@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The catch-all for any unexpected failure in any other workflow: log it to `workflow_logs`, and notify the user. This is n8n's standard "Error Workflow" pattern — every other workflow in this project should have its **Settings → Error Workflow** set to point at this one, so any node failure that isn't already handled locally (e.g. `poll_rss_sources`'s per-source `continueRegularOutput` branches, which are *not* errors from n8n's point of view) ends up here automatically.
+The catch-all for any unexpected failure in any other workflow: log it to `workflow_logs`, and notify the user. This is n8n's standard "Error Workflow" pattern — every other workflow in this project should have its **Settings → Error Workflow** set to point at this one, so any node failure that isn't already handled locally (e.g. `poll_rss_sources`'s per-source `continueRegularOutput` branches, which are _not_ errors from n8n's point of view) ends up here automatically.
 
 ## Trigger
 

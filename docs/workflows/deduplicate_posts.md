@@ -69,8 +69,10 @@ None needed — read-then-conditional-insert, safe to retry on the next schedule
 ## Note: trigram indexes
 
 Add (in a follow-up migration, once this workflow is actually implemented — not needed for the MVP's initial volume, called out here so it isn't forgotten):
+
 ```sql
 CREATE INDEX posts_normalized_text_trgm_idx ON posts USING gin (normalized_text gin_trgm_ops);
 CREATE INDEX posts_title_trgm_idx ON posts USING gin (title gin_trgm_ops);
 ```
+
 Without these, `similarity()` still works correctly, just as a sequential scan — fine at MVP scale (single user, modest channel count), worth adding once post volume grows enough for it to matter.
