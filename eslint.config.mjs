@@ -9,8 +9,9 @@ export default [
     files: ['**/*.ts'],
     languageOptions: {
       parser: tsparser,
-      parserOptions: {
-        project: true,
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
       },
     },
     plugins: {
@@ -19,6 +20,20 @@ export default [
     rules: {
       ...tseslint.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    },
+  },
+  {
+    files: ['db/**/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        require: 'readonly',
+        module: 'writable',
+        exports: 'writable',
+        process: 'readonly',
+        console: 'readonly',
+        __dirname: 'readonly',
+      },
     },
   },
   {

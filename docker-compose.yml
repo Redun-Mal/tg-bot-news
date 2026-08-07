@@ -21,11 +21,11 @@ services:
       - ./db/init:/docker-entrypoint-initdb.d:ro
     ports:
       # Bound to loopback only — dev/migration convenience, not exposed on the LAN.
-      - "127.0.0.1:${POSTGRES_PORT}:5432"
+      - '127.0.0.1:${POSTGRES_PORT}:5432'
     networks:
       - tg-news-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -39,7 +39,7 @@ services:
     networks:
       - tg-news-net
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:1200/healthz"]
+      test: ['CMD', 'curl', '-sf', 'http://127.0.0.1:1200/healthz']
       interval: 30s
       timeout: 5s
       retries: 5
@@ -62,7 +62,7 @@ services:
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE}
       TZ: ${TZ}
     ports:
-      - "${N8N_PORT}:5678"
+      - '${N8N_PORT}:5678'
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
@@ -73,9 +73,24 @@ services:
     networks:
       - tg-news-net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz || exit 1"]
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:5678/healthz || exit 1']
       interval: 15s
       timeout: 5s
       retries: 5
 
-  # helper-api service added in Stage C once services/helper-api has a Dockerfile.
+  helper-api:
+    build:
+      context: .
+      dockerfile: services/helper-api/Dockerfile
+    restart: unless-stopped
+    environment:
+      HELPER_API_PORT: ${HELPER_API_PORT}
+    expose:
+      - '${HELPER_API_PORT}'
+    networks:
+      - tg-news-net
+    healthcheck:
+      test: ['CMD', 'curl', '-sf', 'http://127.0.0.1:${HELPER_API_PORT}/health']
+      interval: 15s
+      timeout: 5s
+      retries: 5
