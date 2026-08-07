@@ -101,6 +101,8 @@ npm test              # vitest — services/helper-api (нормализация
 
 `services/helper-api` тестируется независимо от n8n (нет живого n8n, необходимого для полноценного end-to-end прогона workflow — см. `docs/decisions/`). Ручная проверка ingestion-пути (RSSHub → `/normalize` → Postgres с `ON CONFLICT DO NOTHING`) и state-machine источников (`active`/`paused`/`error`/`removed`) выполнена вручную против живого docker-compose стека при разработке — см. коммиты Stage E/F/H.
 
+Полный чек-лист (что уже проверено вручную, а что требует ваших собственных ключей/бота) — `docs/smoke-checklist.md`.
+
 ## 12. Резервное копирование
 
 См. `docs/backup.md` — команды `pg_dump`/восстановления и резервное копирование volume `n8n_data`.
