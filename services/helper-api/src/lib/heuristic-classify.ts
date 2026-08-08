@@ -43,6 +43,31 @@ function detectLanguage(text: string): string {
   return cyrillic >= latin ? 'ru' : 'en';
 }
 
+const HTML_ENTITIES: Record<string, string> = {
+  '&lt;': '<',
+  '&gt;': '>',
+  '&amp;': '&',
+  '&quot;': '"',
+  '&#39;': "'",
+  '&apos;': "'",
+  '&nbsp;': ' ',
+};
+
+// Post descriptions arrive as HTML (RSSHub passes through the source feed's
+// markup, itself often entity-escaped) — decode entities first, since a raw
+// "&lt;p&gt;" needs to become a real "<p>" tag before tag-stripping can see
+// it as a tag at all, then strip tags for display text like `summary`.
+function stripHtml(text: string): string {
+  const decoded = text.replace(
+    /&lt;|&gt;|&amp;|&quot;|&#39;|&apos;|&nbsp;/g,
+    (m) => HTML_ENTITIES[m] ?? m,
+  );
+  return decoded
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -84,14 +109,16 @@ function truncateSummary(text: string, maxLength = 280): string {
  * stays available once a Claude key exists — same output contract either way.
  */
 export function heuristicClassify(input: HeuristicClassifyInput): Classification {
-  const categories = detectCategories(`${input.title} ${input.rawText}`);
-  const hits = matchedInterests(`${input.title} ${input.rawText}`, input.interests);
-  const importance = URGENCY_PATTERN.test(input.rawText) ? 3 : 2;
+  const cleanTitle = stripHtml(input.title);
+  const cleanText = stripHtml(input.rawText);
+  const categories = detectCategories(`${cleanTitle} ${cleanText}`);
+  const hits = matchedInterests(`${cleanTitle} ${cleanText}`, input.interests);
+  const importance = URGENCY_PATTERN.test(cleanText) ? 3 : 2;
   const relevance = hits.length > 0 ? 0.8 : 0.4;
 
   const result = {
-    title: input.title || truncateSummary(input.rawText, 80),
-    summary: truncateSummary(input.rawText),
+    title: cleanTitle || truncateSummary(cleanText, 80),
+    summary: truncateSummary(cleanText),
     why_it_matters:
       hits.length > 0
         ? `Совпадает с вашими интересами: ${hits.join(', ')}.`

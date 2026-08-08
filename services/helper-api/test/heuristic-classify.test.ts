@@ -21,6 +21,18 @@ const DEFAULT_INTERESTS = [
 ];
 
 describe('heuristicClassify', () => {
+  it('decodes HTML entities and strips tags from the summary (real RSS feed content is HTML)', () => {
+    const result = heuristicClassify({
+      title: 'Заголовок',
+      rawText:
+        '&lt;p&gt;&lt;b&gt;Важная новость&lt;/b&gt; произошла сегодня в городе.&lt;br&gt;&lt;br&gt;Подробности далее.&lt;/p&gt;',
+      interests: [],
+    });
+    expect(result.summary).not.toContain('&lt;');
+    expect(result.summary).not.toContain('<');
+    expect(result.summary).toContain('Важная новость');
+  });
+
   it('detects the programming category from keywords', () => {
     const result = heuristicClassify({
       title: 'Вышел TypeScript 6.0',
