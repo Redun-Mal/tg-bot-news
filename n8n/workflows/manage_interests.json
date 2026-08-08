@@ -1,0 +1,492 @@
+{
+  "name": "manage_interests",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "On workflow call",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-400, 0],
+      "parameters": {}
+    },
+    {
+      "id": "is-add",
+      "name": "action == add?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-160, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.action === 'add' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "http-validate",
+      "name": "Validate interest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [80, -200],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HELPER_API_URL }}/validate-interest",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ interest: $json.topic }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "valid",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [320, -200],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "invalid-msg",
+      "name": "Invalid message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [560, -300],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "={{ $json.error }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-check-dup",
+      "name": "Case-insensitive existing check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [560, -100],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT id FROM user_interests WHERE telegram_user_id = $1 AND lower(interest) = lower($2)",
+        "options": {
+          "queryReplacement": "={{ [ $('On workflow call').item.json.telegramUserId, $json.interest ] }}"
+        }
+      }
+    },
+    {
+      "id": "already-in-list",
+      "name": "Already in list?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [800, -100],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "dup-msg",
+      "name": "Duplicate message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1040, -180],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "={{ '«' + $('Validate interest').item.json.interest + '» уже в списке интересов.' }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-insert-interest",
+      "name": "Insert interest",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1040, -20],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO user_interests (telegram_user_id, interest) VALUES ($1, $2) ON CONFLICT (telegram_user_id, interest) DO NOTHING RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $('On workflow call').item.json.telegramUserId, $('Validate interest').item.json.interest ] }}"
+        }
+      }
+    },
+    {
+      "id": "added-msg",
+      "name": "Added message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1280, -20],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "={{ 'Добавлено: ' + $('Validate interest').item.json.interest }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-delete-interest",
+      "name": "Delete interest",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [80, 200],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "DELETE FROM user_interests WHERE telegram_user_id = $1 AND lower(interest) = lower($2) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.telegramUserId, $json.topic ] }}"
+        }
+      }
+    },
+    {
+      "id": "removed",
+      "name": "Row removed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [320, 200],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "removed-msg",
+      "name": "Removed message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [560, 120],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "={{ 'Удалено: ' + $('On workflow call').item.json.topic }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "not-found-msg",
+      "name": "Not found message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [560, 280],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "={{ '«' + $('On workflow call').item.json.topic + '» не найдено в списке интересов.' }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "join",
+      "name": "Join",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1520, 0],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "On workflow call": {
+      "main": [
+        [
+          {
+            "node": "action == add?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "action == add?": {
+      "main": [
+        [
+          {
+            "node": "Validate interest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delete interest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate interest": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Case-insensitive existing check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invalid message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Case-insensitive existing check": {
+      "main": [
+        [
+          {
+            "node": "Already in list?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already in list?": {
+      "main": [
+        [
+          {
+            "node": "Duplicate message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert interest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert interest": {
+      "main": [
+        [
+          {
+            "node": "Added message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Added message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete interest": {
+      "main": [
+        [
+          {
+            "node": "Row removed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Row removed?": {
+      "main": [
+        [
+          {
+            "node": "Removed message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not found message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Removed message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Not found message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

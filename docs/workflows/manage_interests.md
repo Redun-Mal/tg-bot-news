@@ -48,3 +48,7 @@ None needed — single validated INSERT/DELETE per call.
 ## Anti-duplicate protection
 
 `user_interests.UNIQUE(telegram_user_id, interest)` (Stage B) is the backstop behind the explicit case-insensitive pre-check (step 2c) — the pre-check gives a clean user-facing "already in list" message; the constraint plus `ON CONFLICT DO NOTHING` guards the exact-case race a case-insensitive `SELECT` could still miss between check and insert.
+
+## n8n JSON
+
+`n8n/workflows/manage_interests.json` is **verified**: all branches confirmed live — new interest added, case-insensitive duplicate correctly rejected, case-insensitive removal, idempotent re-removal correctly reporting "not found", and the 60-char validation limit correctly rejecting an over-long interest. No new n8n quirks beyond `docs/decisions/005-n8n-postgres-node-quirks.md`.
