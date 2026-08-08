@@ -5,7 +5,7 @@
       "id": "trigger",
       "name": "Telegram message",
       "type": "n8n-nodes-base.telegramTrigger",
-      "typeVersion": 1.1,
+      "typeVersion": 1,
       "position": [-1400, 0],
       "credentials": {
         "telegramApi": {

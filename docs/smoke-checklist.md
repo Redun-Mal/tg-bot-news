@@ -31,4 +31,4 @@ All 12 workflows in `docs/workflows/`/`n8n/workflows/` were built via n8n's REST
 
 - `/set_time` vs. `daily_digest`'s cron: the setting would be stored but the cron trigger doesn't read it back (`docs/decisions/`, `docs/workflows/telegram_commands.md`).
 - `daily_digest`'s multi-message partial-failure case (some chunks send, one doesn't) isn't guaranteed all-or-nothing by the current wiring — untested since the live test digest only produced one message (`docs/workflows/daily_digest.md`).
-- One transient `RangeError` inside n8n's own `TelegramTrigger.node.js` on 1 of 8 real webhook deliveries, not reproduced again — noted in `docs/workflows/telegram_commands.md`, not chased further.
+- ~~One transient `RangeError`...~~ **Not actually transient** — it was Telegram Trigger v1.1's secret-token check crashing the entire n8n process on every real message (Quirk 8). Fixed by pinning `typeVersion 1`. Confirmed fixed by posting a synthetic Telegram-shaped update directly to the webhook after the change: `200`, execution succeeded, no new crash in the container logs where the same request shape had crashed it before.
