@@ -255,7 +255,7 @@
       "position": [320, 0],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "return { json: { chatId: $('Parse command').item.json.chatId, text: $json.message } };"
+        "jsCode": "return { json: { chatId: $('Parse command').first().json.chatId, text: $json.message } };"
       }
     },
     {
