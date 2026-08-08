@@ -1,6 +1,6 @@
 # Telegram AI News Digest
 
-> Статус: MVP, построен поэтапно (Stage A–L). Обзор архитектуры и обоснование решений — `docs/architecture.md` и `docs/decisions/`. Спецификации всех n8n-workflow — `docs/workflows/`.
+> Статус: MVP. Все 12 n8n-workflow собраны и проверены вживую (headless через REST API n8n) против реальных Postgres/RSSHub/Telegram; `telegram_commands` подтверждён реальными сообщениями от реального пользователя через реальный webhook. Единственное, чего не хватает — `CLAUDE_API_KEY` (классификация ошибается с настоящим 401 от Anthropic — корректно, без списания средств). Подробности — `docs/smoke-checklist.md`. Обзор архитектуры и обоснование решений — `docs/architecture.md` и `docs/decisions/` (включая 7 реальных багов n8n, найденных в процессе — `docs/decisions/005-n8n-postgres-node-quirks.md`). Спецификации всех n8n-workflow — `docs/workflows/`.
 
 ## 1. Что делает проект
 
@@ -53,7 +53,7 @@
 cp .env.example .env
 ```
 
-Заполните как минимум: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_ID`, `CLAUDE_API_KEY`, `POSTGRES_PASSWORD`, `N8N_ENCRYPTION_KEY` (любая случайная строка — используется n8n для шифрования хранилища credentials, **не меняйте её после первого запуска**, иначе существующие credentials в n8n станут нечитаемыми).
+Заполните как минимум: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_ID`, `CLAUDE_API_KEY`, `POSTGRES_PASSWORD`, `N8N_ENCRYPTION_KEY` (любая случайная строка — используется n8n для шифрования хранилища credentials, **не меняйте её после первого запуска**, иначе существующие credentials в n8n станут нечитаемыми). `WEBHOOK_URL` нужен только для `telegram_commands` (реальный webhook Telegram) — оставьте пустым, если пока не собираетесь принимать реальные сообщения; для разработки подойдёт `ngrok http ${N8N_PORT}`.
 
 `.env` уже в `.gitignore` — секреты никогда не коммитятся. `.env.example` — единственный файл с полным списком переменных, но без реальных значений.
 
@@ -70,14 +70,16 @@ docker compose ps
 
 ## 9. Импорт n8n workflows
 
-Планировалось так: для workflow, которые оказались структурно сложными (вложенные циклы, много ветвлений — `poll_rss_sources`, `classify_with_claude`, `daily_digest`, `telegram_commands` и т.д.), готового JSON нет — есть только подробная спецификация в `docs/workflows/`, по которой нужно собрать workflow вручную в интерфейсе n8n. Для одной workflow, которая оказалась близка к линейной (`health_check`), есть черновой JSON в `n8n/workflows/health_check.json` — он **не проверен** на реальном n8n (в среде, где собирался проект, n8n для проверки не было) и требует ручной проверки/правки после импорта.
+Все 12 workflow в `n8n/workflows/` — это **реальные экспорты**, собранные и проверенные вживую (через REST API n8n, headless), а не черновики вслепую. Подробности что именно проверено — `docs/smoke-checklist.md` и секция «n8n JSON» в каждом файле `docs/workflows/*.md`.
 
 Порядок:
 
-1. Настройте credentials — `n8n/credential-setup.md` (Telegram, Claude/Anthropic, Postgres).
-2. Соберите workflow по спецификациям из `docs/workflows/` в порядке: `add_source`, `remove_source`, `pause_source`, `resume_source`, `poll_rss_sources`, `deduplicate_posts`, `classify_with_claude`, `send_instant_alerts`, `daily_digest`, `telegram_commands`, `manage_interests`, `health_check`, `error_handler`.
-3. Для каждой workflow, кроме `telegram_commands`/`health_check`/`error_handler`, укажите **Settings → Error Workflow** = `error_handler`.
-4. Активируйте workflow (переключатель Active).
+1. Настройте credentials — `n8n/credential-setup.md` (Telegram, Claude/Anthropic, Postgres). ID credentials в экспортированных JSON — плейсхолдеры (`REPLACE_ME`); после импорта переназначьте credential на каждой ноде через UI.
+2. Импортируйте JSON-файлы из `n8n/workflows/` в порядке: `error_handler` (сначала — на него ссылаются остальные), `add_source`, `remove_source`, `pause_source`, `resume_source`, `poll_rss_sources`, `deduplicate_posts`, `classify_with_claude`, `send_instant_alerts`, `daily_digest`, `manage_interests`, `health_check`, `telegram_commands`.
+3. У `telegram_commands.json` поле `webhookId` на ноде Telegram Trigger — тоже плейсхолдер; **импортируйте через UI n8n** (не через сырой POST к REST API) — тогда n8n сам присвоит корректный `webhookId` при активации. См. `docs/decisions/005-n8n-postgres-node-quirks.md`, Quirk 7 — при неправильной активации Telegram будет получать 404 на реальные сообщения.
+4. Каждой workflow, кроме `error_handler`, уже проставлен **Settings → Error Workflow** = `error_handler` в экспорте — проверьте, что ссылка не сломалась после импорта (n8n может присвоить новый internal ID).
+5. Активируйте workflow (переключатель Active). Для `telegram_commands` понадобится публичный HTTPS URL (`WEBHOOK_URL` в `.env`, например через `ngrok http ${N8N_PORT}` для разработки — см. `docs/troubleshooting.md`).
+6. `telegram_commands` сейчас реализует только `/start`, `/help`, `/sources`, `/add_source` — остальные команды из спецификации ещё не собраны (см. `docs/smoke-checklist.md`).
 
 ## 10. Добавление первого канала
 

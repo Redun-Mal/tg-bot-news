@@ -1,0 +1,471 @@
+{
+  "name": "telegram_commands",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Telegram message",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [-1400, 0],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram Bot"
+        }
+      },
+      "parameters": {
+        "updates": ["message"]
+      },
+      "webhookId": "REPLACE_ME_ON_IMPORT"
+    },
+    {
+      "id": "code-auth",
+      "name": "Auth gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1160, 0],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const msg = $json.message || {};\nconst allowed = String(msg.from?.id) === String($env.TELEGRAM_ALLOWED_USER_ID);\nreturn { json: { allowed, chatId: msg.chat?.id, text: msg.text || '', fromId: msg.from?.id } };"
+      }
+    },
+    {
+      "id": "is-allowed",
+      "name": "Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-920, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.allowed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "noop-ignore",
+      "name": "Silently ignore",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [-680, 200],
+      "parameters": {}
+    },
+    {
+      "id": "code-parse",
+      "name": "Parse command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-680, -100],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const text = ($json.text || '').trim();\nlet command = '', args = '';\nif (text.startsWith('/')) {\n  const parts = text.split(' ');\n  command = parts[0].split('@')[0];\n  args = parts.slice(1).join(' ').trim();\n}\nreturn { json: { ...$json, command, args } };"
+      }
+    },
+    {
+      "id": "is-start-help",
+      "name": "start or help?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-440, -300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.command === '/start' || $json.command === '/help' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "help-msg",
+      "name": "Help message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-200, -400],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "Привет! Я собираю новости из добавленных Telegram-каналов.\\n\\nКоманды:\\n/add_source <ссылка> — добавить публичный канал\\n/sources — список источников\\n/help — эта справка"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "is-sources",
+      "name": "sources?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-440, -100],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.command === '/sources' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "pg-sources",
+      "name": "List sources",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-200, -180],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT id, channel_username, status FROM sources WHERE status != 'removed' ORDER BY id",
+        "options": {}
+      }
+    },
+    {
+      "id": "code-format-sources",
+      "name": "Format sources list",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [40, -180],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const rows = $input.all().map(i => i.json).filter(r => r.id !== undefined);\nconst message = rows.length === 0\n  ? 'Источников пока нет. Добавьте: /add_source <ссылка>'\n  : rows.map(r => `${r.id}. ${r.channel_username} (${r.status})`).join('\\n');\nreturn [{ json: { message } }];"
+      }
+    },
+    {
+      "id": "is-add-source",
+      "name": "add_source?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-440, 100],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.command === '/add_source' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "code-build-add-source-input",
+      "name": "Build add_source input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 100],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { telegramUserId: $json.fromId, url: $json.args } };"
+      }
+    },
+    {
+      "id": "execute-add-source",
+      "name": "Call add_source",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [40, 100],
+      "parameters": {
+        "source": "database",
+        "workflowId": "JoUc5hyuUWqQnwTR"
+      }
+    },
+    {
+      "id": "unknown-msg",
+      "name": "Unknown command message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-200, 300],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "Неизвестная команда. Напишите /help."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "code-merge-reply",
+      "name": "Prepare reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [320, 0],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { chatId: $('Parse command').item.json.chatId, text: $json.message } };"
+      }
+    },
+    {
+      "id": "telegram-reply",
+      "name": "Send reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [560, 0],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram Bot"
+        }
+      },
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.text }}"
+      }
+    }
+  ],
+  "connections": {
+    "Telegram message": {
+      "main": [
+        [
+          {
+            "node": "Auth gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth gate": {
+      "main": [
+        [
+          {
+            "node": "Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Parse command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Silently ignore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse command": {
+      "main": [
+        [
+          {
+            "node": "start or help?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "start or help?": {
+      "main": [
+        [
+          {
+            "node": "Help message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "sources?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sources?": {
+      "main": [
+        [
+          {
+            "node": "List sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "add_source?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List sources": {
+      "main": [
+        [
+          {
+            "node": "Format sources list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "add_source?": {
+      "main": [
+        [
+          {
+            "node": "Build add_source input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unknown command message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build add_source input": {
+      "main": [
+        [
+          {
+            "node": "Call add_source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Help message": {
+      "main": [
+        [
+          {
+            "node": "Prepare reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format sources list": {
+      "main": [
+        [
+          {
+            "node": "Prepare reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call add_source": {
+      "main": [
+        [
+          {
+            "node": "Prepare reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unknown command message": {
+      "main": [
+        [
+          {
+            "node": "Prepare reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare reply": {
+      "main": [
+        [
+          {
+            "node": "Send reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "El0evc0X113sLWow"
+  }
+}

@@ -1,38 +1,34 @@
 # End-to-end smoke checklist
 
-Full pipeline: add source → poll → normalize → dedupe → classify → alert/digest → commands → NL query. Split into what's been mechanically verified during development (no real Telegram bot or Claude key were available) and what needs the user's own credentials to complete.
+Full pipeline: add source → poll → normalize → dedupe → classify → alert/digest → commands → NL query. Started as a design-time checklist (Stage A–L, no live n8n or Telegram bot available); a real `TELEGRAM_BOT_TOKEN` later made it possible to stand up n8n headlessly via its REST API and build/verify 12 of 12 workflows live — see `docs/decisions/005-n8n-postgres-node-quirks.md` for the seven real n8n bugs found in the process. Split below into what's actually been run against real services and what still needs a `CLAUDE_API_KEY` to finish.
 
-## Verified (repeatable without external credentials)
+## Verified live against a real n8n instance + real external services
 
-- [x] `docker compose config` valid; all 4 services (`postgres`, `rsshub`, `n8n`, `helper-api`) reach `healthy` together.
-- [x] `npm run lint` / `format:check` / `typecheck` / `test` — all green from repo root (59 tests, `services/helper-api`).
-- [x] DB migrations: up → down → up round-trip, re-run idempotency, constraints inspected via `psql` (Stage B).
-- [x] Seed script: 16 default interests, idempotent re-run (Stage B).
-- [x] `helper-api` reachable from another container by service name, **not** reachable from the host (internal-only, Stage C).
-- [x] RSSHub's real Telegram route fetches a live public channel (`/telegram/channel/telegram` → valid RSS XML) (Stage A/E).
-- [x] Ingestion path simulated end-to-end without n8n: RSSHub fetch → `helper-api /normalize` → Postgres insert; re-running the same fetch inserts zero duplicate rows (`ON CONFLICT DO NOTHING`) (Stage E).
-- [x] `sources` state machine: `active` → `paused` → `active` → `removed`; posts survive the soft-delete (Stage E).
-- [x] `pg_trgm` dedup: two near-identical posts from different channels correctly fan into one `news_item` via `news_sources`; re-linking the same post is a no-op (Stage F).
-- [x] `POST /validate-classification`: accepts well-formed and markdown-fenced responses, rejects every contract violation named in the spec, tolerant of unexpected extra fields (13 fixture tests, Stage G).
-- [x] `POST /format-digest`: caps (5/category, 25 total), importance-then-relevance ordering, empty-section skipping, multi-category grouping, forced multi-message splitting under Telegram's 4096-char limit (21 tests, Stage H).
-- [x] `deliveries` reserve-before-send pattern: a simulated overlapping second reservation attempt correctly returns 0 rows (Stage H).
-- [x] `POST /validate-interest`: trims/collapses whitespace, enforces the 60-char cap (8 tests, Stage I).
-- [x] `health_check`'s core detection mechanism: stopping the `rsshub` container makes a reachability check from another container fail exactly the way the workflow is designed to catch (connection error, not 200); restarting it confirms recovery detection too (Stage J).
+All 12 workflows in `docs/workflows/`/`n8n/workflows/` were built via n8n's REST API (headless owner-account bootstrap, no browser) and executed for real — not just spec-reviewed. Each workflow's own "n8n JSON" section has the specifics; summary:
 
-## Needs the user's own credentials — not run in this environment
+- [x] `health_check` — full run against real Postgres/RSSHub/helper-api; edge-triggered alerting logic confirmed on a first-ever run (no prior row).
+- [x] `add_source` — a real public channel (`t.me/telegram`) added via a real RSSHub fetch; duplicate rejection; a nonexistent channel correctly landing in `error` status against a real RSSHub 503.
+- [x] `remove_source` / `pause_source` / `resume_source` — full state-machine walk (`active` → `paused` → reject re-pause → `active`, `error_count` reset), idempotent re-removal.
+- [x] `poll_rss_sources` — 20 real posts ingested from a live channel; re-run confirmed as a true no-op; failure branch confirmed against a genuinely unreachable feed.
+- [x] `deduplicate_posts` — a real near-duplicate post correctly merged into an existing `news_item` via `pg_trgm`; an unrelated post correctly left unresolved.
+- [x] `manage_interests` — add/case-insensitive-duplicate/remove/re-remove/over-length-rejection, all confirmed live.
+- [x] `send_instant_alerts` / `daily_digest` — reservation, real `/format-digest` calls, and the failure-releases-the-reservation path all confirmed. **The success/confirm path (a message actually arriving) is unverified** — the dev environment had no real `TELEGRAM_ALLOWED_USER_ID` at the time these were built, only a placeholder.
+- [x] `error_handler` — a real `workflow_logs` row written from a mock error payload; wired as the **Error Workflow** on all 12 workflows.
+- [x] `classify_with_claude` — filter-out path confirmed (a giveaway post never reaches Claude); the Claude call itself got a genuine `401 authentication_error` from Anthropic's real API (no real key was available) and correctly logged/left the post unresolved. **The successful-classification path is unverified.**
+- [x] `telegram_commands` — **the one workflow proven with a real Telegram user, over a real webhook** (n8n exposed via an ngrok tunnel): auth gate (real allowed user passes; a synthetic non-allowed sender is silently ignored), `/help`, `/sources`, `/add_source <url>` (dispatching through a real `Execute Workflow` call, really adding a channel), and free text correctly falling through to "unknown command" — all confirmed against 8 real incoming messages.
 
-- [ ] **Live Claude API call** — `CLAUDE_API_KEY` was never available here. `classify_with_claude`'s prompt construction and the forced-structured-output request itself are unverified against real model output; only the response _validation_ side (`/validate-classification`) has been tested, against hand-written fixtures.
-- [ ] **Live Telegram bot** — `TELEGRAM_BOT_TOKEN` was never available here. No command has actually been sent to a real bot; `telegram_commands`' full command-by-command checklist (allowed vs. non-allowed test account, per the plan) is unrun.
-- [ ] **n8n workflow import** — every workflow in `docs/workflows/` needs to be built by hand in the n8n UI (or, for `health_check`, imported from the draft JSON and fixed up) and test-executed. None of them have been imported/run against a live n8n instance.
-- [ ] **`/set_time` vs. `daily_digest`'s cron** — documented as a known gap (`docs/decisions/`, `docs/workflows/telegram_commands.md`): the setting is stored but the cron trigger doesn't currently read it back. Worth deciding how to close this before relying on a non-default digest time.
-- [ ] **Real end-to-end run**: add a real channel via `/add_source`, wait for a poll cycle, confirm a post gets classified and either alerted instantly or shows up in the next digest.
+## Still needs a real `CLAUDE_API_KEY` to finish
 
-## Suggested order once credentials are available
+- [ ] `classify_with_claude`'s successful-classification path: parsing a real Claude response into a `news_items` row, and the level-4 (post-AI) dedup check against it.
+- [ ] `send_instant_alerts` / `daily_digest`'s success/confirm path now has no blocker _except_ there being an actual classified `news_item` to send — once Claude produces one, these should just work (their reservation/format/failure paths are already proven).
+- [ ] `telegram_commands`' NL free-text intent routing (`/news`, `/digest`, and the natural-language query examples) needs a Claude call it doesn't yet have wired up — see that workflow's spec for what's built vs. not.
 
-1. `n8n/credential-setup.md` — wire up Telegram, Claude, Postgres credentials.
-2. Build `health_check` first (has a JSON draft to start from) — confirms the credential setup itself works before building anything more complex.
-3. Build `add_source` + `poll_rss_sources`, add one real channel, confirm posts land in `posts`.
-4. Build `deduplicate_posts` + `classify_with_claude`, confirm a `news_items` row appears with sane output.
-5. Build `send_instant_alerts` + `daily_digest`, confirm a message actually arrives in Telegram.
-6. Build `telegram_commands` + `manage_interests`, run the full command checklist against both the allowed account and a second, non-allowed one.
-7. Set every workflow's **Error Workflow** to `error_handler`, build it, and deliberately break something (stop a container) to confirm it fires.
+## Also not yet built (spec exists, same proven patterns apply)
+
+`/news`, `/news <category>`, `/digest`, `/remove_source`, `/pause_source`, `/resume_source`, `/set_interest`, `/remove_interest`, `/settings`, `/set_time` inside `telegram_commands` — the dispatcher currently only wires up `/start`, `/help`, `/sources`, `/add_source`. Each remaining command is an `Execute Workflow` call into an already-verified sub-workflow (`remove_source`, `pause_source`, `resume_source`, `manage_interests`) plus a Postgres query, following the exact pattern `/add_source` already proves works end-to-end.
+
+## Known gaps (documented, not silently papered over)
+
+- `/set_time` vs. `daily_digest`'s cron: the setting would be stored but the cron trigger doesn't read it back (`docs/decisions/`, `docs/workflows/telegram_commands.md`).
+- `daily_digest`'s multi-message partial-failure case (some chunks send, one doesn't) isn't guaranteed all-or-nothing by the current wiring — untested since the live test digest only produced one message (`docs/workflows/daily_digest.md`).
+- One transient `RangeError` inside n8n's own `TelegramTrigger.node.js` on 1 of 8 real webhook deliveries, not reproduced again — noted in `docs/workflows/telegram_commands.md`, not chased further.
