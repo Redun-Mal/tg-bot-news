@@ -3,12 +3,12 @@
   "nodes": [
     {
       "parameters": {
-        "content": "Verified live: imported into a real n8n instance, credentials wired up, executed successfully end to end, and a real workflow_logs row was confirmed via psql. Still update the Telegram/Postgres credential IDs to your own after importing — this export's IDs point at the dev instance's credentials. See docs/workflows/health_check.md for the full behavior and docs/decisions/005-n8n-postgres-node-quirks.md for two real n8n Postgres-node gotchas found while building this.",
-        "height": 200,
+        "content": "DRAFT — hand-authored, unverified against a live n8n instance (no n8n available in the dev environment that produced this). Import, review every node's parameters, and test-execute before trusting it. See docs/workflows/health_check.md for the intended behavior this is trying to encode.",
+        "height": 160,
         "width": 320
       },
       "id": "sticky-warning",
-      "name": "Verified",
+      "name": "Draft warning",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [-200, -80]
@@ -213,7 +213,11 @@
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_ALLOWED_USER_ID }}",
-        "text": "={{ $('Compare to previous').first().json.healthy ? '✅ Всё снова работает.' : '⚠️ Проблема с сервисом: ' + JSON.stringify($('Compare to previous').first().json) }}"
+        "text": "={{ $('Compare to previous').first().json.healthy ? '✅ Всё снова работает.' : '⚠️ Проблема с сервисом: ' + JSON.stringify($('Compare to previous').first().json) }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "appendAttribution": false
+        }
       },
       "id": "telegram-alert",
       "name": "Send Telegram alert",

@@ -84,7 +84,11 @@
         "resource": "message",
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_ALLOWED_USER_ID }}",
-        "text": "📰 Сегодня новостей нет."
+        "text": "📰 Сегодня новостей нет.",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "appendAttribution": false
+        }
       }
     },
     {
@@ -174,7 +178,11 @@
         "resource": "message",
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_ALLOWED_USER_ID }}",
-        "text": "={{ $json.text }}"
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "appendAttribution": false
+        }
       }
     },
     {
@@ -418,6 +426,7 @@
   },
   "active": false,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "errorWorkflow": "El0evc0X113sLWow"
   }
 }

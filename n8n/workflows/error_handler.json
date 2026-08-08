@@ -58,7 +58,11 @@
         "resource": "message",
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_ALLOWED_USER_ID }}",
-        "text": "={{ '⚠️ Ошибка в workflow «' + $('Extract error details').item.json.workflowName + '» (узел: ' + $('Extract error details').item.json.nodeName + '): ' + $('Extract error details').item.json.errorMessage }}"
+        "text": "={{ '⚠️ Ошибка в workflow «' + $('Extract error details').item.json.workflowName + '» (узел: ' + $('Extract error details').item.json.nodeName + '): ' + $('Extract error details').item.json.errorMessage }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "appendAttribution": false
+        }
       }
     },
     {
