@@ -1,0 +1,423 @@
+{
+  "name": "daily_digest",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "09:00 Bishkek",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-900, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-eligible",
+      "name": "Eligible items",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-660, 0],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT ni.id, ni.canonical_title AS title, ni.summary, ni.why_it_matters AS \"whyItMatters\", ni.categories, ni.importance, ni.relevance, (SELECT p.post_url FROM news_sources ns JOIN posts p ON p.id = ns.post_id  WHERE ns.news_item_id = ni.id ORDER BY ns.created_at LIMIT 1) AS \"sourceUrl\" FROM news_items ni LEFT JOIN deliveries d ON d.news_item_id = ni.id AND d.telegram_user_id = $1 WHERE ni.processed_at > now() - interval '24 hours' AND ni.is_advertisement = false AND d.id IS NULL ORDER BY ni.importance DESC, ni.relevance DESC",
+        "options": {
+          "queryReplacement": "={{ [ $env.TELEGRAM_ALLOWED_USER_ID ] }}"
+        }
+      }
+    },
+    {
+      "id": "has-items",
+      "name": "Any items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-420, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "telegram-no-news",
+      "name": "Send no-news message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [-180, 200],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram Bot"
+        }
+      },
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_ALLOWED_USER_ID }}",
+        "text": "📰 Сегодня новостей нет."
+      }
+    },
+    {
+      "id": "pg-reserve",
+      "name": "Reserve delivery",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-180, -100],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO deliveries (news_item_id, telegram_user_id, delivery_type) VALUES ($1, $2, 'digest') ON CONFLICT (news_item_id, telegram_user_id, delivery_type) DO NOTHING RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.id, $env.TELEGRAM_ALLOWED_USER_ID ] }}"
+        }
+      }
+    },
+    {
+      "id": "code-attach-reservation",
+      "name": "Attach reservation id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [60, -100],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const original = $('Eligible items').item.json;\nreturn { json: { ...original, reservationId: $json.id } };"
+      }
+    },
+    {
+      "id": "aggregate",
+      "name": "Aggregate reserved items",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [300, -100],
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "items"
+      }
+    },
+    {
+      "id": "http-format-digest",
+      "name": "Format digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, -100],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HELPER_API_URL }}/format-digest",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ items: $json.items }) }}",
+        "options": {}
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "code-split-messages",
+      "name": "Split messages to items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, -100],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const messages = $input.first().json.messages || [];\nreturn messages.map((text) => ({ json: { text } }));"
+      }
+    },
+    {
+      "id": "telegram-send-digest",
+      "name": "Send digest message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1020, -100],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram Bot"
+        }
+      },
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_ALLOWED_USER_ID }}",
+        "text": "={{ $json.text }}"
+      }
+    },
+    {
+      "id": "code-collect-results",
+      "name": "Collect send results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, -200],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: { allSent: true } }];"
+      }
+    },
+    {
+      "id": "code-collect-failure",
+      "name": "Collect send failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: { allSent: false } }];"
+      }
+    },
+    {
+      "id": "pg-confirm-all",
+      "name": "Bulk confirm deliveries",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1500, -200],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "UPDATE deliveries SET delivered_at = now() WHERE id = ANY($1::int[])",
+        "options": {
+          "queryReplacement": "={{ [ $('Attach reservation id').all().map(i => i.json.reservationId) ] }}"
+        }
+      }
+    },
+    {
+      "id": "pg-release-all",
+      "name": "Bulk release reservations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1500, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "DELETE FROM deliveries WHERE id = ANY($1::int[]) AND delivered_at IS NULL",
+        "options": {
+          "queryReplacement": "={{ [ $('Attach reservation id').all().map(i => i.json.reservationId) ] }}"
+        }
+      }
+    },
+    {
+      "id": "pg-log-digest-fail",
+      "name": "Log digest failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1740, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_logs (workflow_name, level, message) VALUES ('daily_digest', 'error', 'Digest send failed, reservations released') RETURNING id",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "09:00 Bishkek": {
+      "main": [
+        [
+          {
+            "node": "Eligible items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eligible items": {
+      "main": [
+        [
+          {
+            "node": "Any items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any items?": {
+      "main": [
+        [
+          {
+            "node": "Reserve delivery",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send no-news message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserve delivery": {
+      "main": [
+        [
+          {
+            "node": "Attach reservation id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach reservation id": {
+      "main": [
+        [
+          {
+            "node": "Aggregate reserved items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate reserved items": {
+      "main": [
+        [
+          {
+            "node": "Format digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format digest": {
+      "main": [
+        [
+          {
+            "node": "Split messages to items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Collect send failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split messages to items": {
+      "main": [
+        [
+          {
+            "node": "Send digest message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send digest message": {
+      "main": [
+        [
+          {
+            "node": "Collect send results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Collect send failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect send results": {
+      "main": [
+        [
+          {
+            "node": "Bulk confirm deliveries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect send failure": {
+      "main": [
+        [
+          {
+            "node": "Bulk release reservations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bulk release reservations": {
+      "main": [
+        [
+          {
+            "node": "Log digest failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
