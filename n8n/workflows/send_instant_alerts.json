@@ -1,0 +1,237 @@
+{
+  "name": "send_instant_alerts",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Every 2 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-600, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-eligible",
+      "name": "Eligible items",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-360, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT ni.id, ni.canonical_title, ni.summary, ni.why_it_matters, ni.categories, ni.importance, ni.relevance, (SELECT p.post_url FROM news_sources ns JOIN posts p ON p.id = ns.post_id  WHERE ns.news_item_id = ni.id ORDER BY ns.created_at LIMIT 1) AS source_url FROM news_items ni LEFT JOIN deliveries d ON d.news_item_id = ni.id AND d.telegram_user_id = $1 AND d.delivery_type = 'instant' WHERE ni.importance >= 3 AND ni.relevance >= 0.75 AND ni.is_advertisement = false AND d.id IS NULL ORDER BY ni.processed_at LIMIT 20",
+        "options": {
+          "queryReplacement": "={{ [ $env.TELEGRAM_ALLOWED_USER_ID ] }}"
+        }
+      }
+    },
+    {
+      "id": "pg-reserve",
+      "name": "Reserve delivery",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-120, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO deliveries (news_item_id, telegram_user_id, delivery_type) VALUES ($1, $2, 'instant') ON CONFLICT (news_item_id, telegram_user_id, delivery_type) DO NOTHING RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.id, $env.TELEGRAM_ALLOWED_USER_ID ] }}"
+        }
+      }
+    },
+    {
+      "id": "code-format",
+      "name": "Format alert text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [120, 0],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $('Eligible items').item.json;\nconst lines = ['⚡ Важная новость', '', item.canonical_title, item.summary];\nif (item.why_it_matters) lines.push('Почему важно: ' + item.why_it_matters);\nlines.push('Источник: ' + item.source_url);\nreturn { json: { reservationId: $json.id, text: lines.join('\\n') } };"
+      }
+    },
+    {
+      "id": "telegram-send",
+      "name": "Send Telegram alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [360, 0],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram Bot"
+        }
+      },
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_ALLOWED_USER_ID }}",
+        "text": "={{ $json.text }}"
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "pg-confirm",
+      "name": "Confirm delivery",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [840, -100],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "UPDATE deliveries SET delivered_at = now(), telegram_message_id = $1 WHERE id = $2",
+        "options": {
+          "queryReplacement": "={{ [ $json.message_id || 0, $('Format alert text').item.json.reservationId ] }}"
+        }
+      }
+    },
+    {
+      "id": "pg-release",
+      "name": "Release reservation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [840, 100],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "DELETE FROM deliveries WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [ $('Format alert text').item.json.reservationId ] }}"
+        }
+      }
+    },
+    {
+      "id": "pg-log-fail",
+      "name": "Log send failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1080, 100],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_logs (workflow_name, level, message) VALUES ('send_instant_alerts', 'error', $1) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ 'Telegram send failed for reservation ' + $('Format alert text').item.json.reservationId ] }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 2 minutes": {
+      "main": [
+        [
+          {
+            "node": "Eligible items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eligible items": {
+      "main": [
+        [
+          {
+            "node": "Reserve delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserve delivery": {
+      "main": [
+        [
+          {
+            "node": "Format alert text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format alert text": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram alert": {
+      "main": [
+        [
+          {
+            "node": "Confirm delivery",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Release reservation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Release reservation": {
+      "main": [
+        [
+          {
+            "node": "Log send failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

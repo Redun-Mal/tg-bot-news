@@ -56,3 +56,7 @@ Telegram send: 3 tries, n8n's built-in fixed-interval retry.
 ## Anti-duplicate protection
 
 This is the canonical use of the `deliveries` reserve pattern (see `db/README.md`): **reserve before send**. The `UNIQUE(news_item_id, telegram_user_id, delivery_type)` constraint plus `ON CONFLICT DO NOTHING RETURNING id` means only one execution can ever win the reservation for a given item, even if two runs overlap — the loser gets 0 rows back and skips, never sends.
+
+## n8n JSON
+
+`n8n/workflows/send_instant_alerts.json` is **verified for the reservation/failure path**: an eligible `news_item` correctly gets its `deliveries` row reserved, the message correctly formatted, and — sending to a deliberately-invalid `chat_id` (no real Telegram user ID was available while building this) — the failure path correctly released the reservation and logged the error. This surfaced Quirk 5 (`continueOnFail` puts the error in a different place per node type — the Telegram node's failure was originally invisible to the `IF` check that worked fine for HTTP nodes) — see `docs/decisions/005-n8n-postgres-node-quirks.md`. The **success path** (`Confirm delivery`, actually receiving a message) is unverified — needs a real `TELEGRAM_ALLOWED_USER_ID` to test.
