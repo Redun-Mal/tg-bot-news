@@ -115,7 +115,7 @@
               "id": "m",
               "name": "message",
               "type": "string",
-              "value": "Привет! Я собираю новости из добавленных Telegram-каналов.\\n\\nКоманды:\\n/add_source <ссылка> — добавить публичный канал\\n/sources — список источников\\n/help — эта справка"
+              "value": "Привет! Я собираю новости из добавленных Telegram-каналов.\\n\\nКоманды:\\n/add_source «ссылка» — добавить публичный канал\\n/sources — список источников\\n/help — эта справка"
             }
           ]
         }
@@ -275,7 +275,11 @@
         "resource": "message",
         "operation": "sendMessage",
         "chatId": "={{ $json.chatId }}",
-        "text": "={{ $json.text }}"
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "appendAttribution": false
+        }
       }
     }
   ],
