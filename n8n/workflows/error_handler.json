@@ -1,0 +1,138 @@
+{
+  "name": "error_handler",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [-400, 0],
+      "parameters": {}
+    },
+    {
+      "id": "code-extract",
+      "name": "Extract error details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-160, 0],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const workflowName = $json.workflow?.name || 'unknown';\nconst nodeName = $json.execution?.lastNodeExecuted || 'unknown';\nconst errorMessage = $json.execution?.error?.message || 'unknown error';\nconst executionUrl = $json.execution?.url || '';\nreturn { json: { workflowName, nodeName, errorMessage, executionUrl } };"
+      }
+    },
+    {
+      "id": "pg-log",
+      "name": "Log error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [80, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_logs (workflow_name, level, message, metadata) VALUES ($1, 'error', $2, jsonb_build_object('nodeName', $3::text, 'executionUrl', $4::text)) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.workflowName, $json.errorMessage, $json.nodeName, $json.executionUrl ] }}"
+        }
+      }
+    },
+    {
+      "id": "telegram-alert",
+      "name": "Send error alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [320, 0],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram Bot"
+        }
+      },
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_ALLOWED_USER_ID }}",
+        "text": "={{ '⚠️ Ошибка в workflow «' + $('Extract error details').item.json.workflowName + '» (узел: ' + $('Extract error details').item.json.nodeName + '): ' + $('Extract error details').item.json.errorMessage }}"
+      }
+    },
+    {
+      "id": "noop-sent",
+      "name": "Alert sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [560, -100],
+      "parameters": {}
+    },
+    {
+      "id": "noop-not-sent",
+      "name": "Alert failed (dead end)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [560, 100],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract error details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract error details": {
+      "main": [
+        [
+          {
+            "node": "Log error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log error": {
+      "main": [
+        [
+          {
+            "node": "Send error alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send error alert": {
+      "main": [
+        [
+          {
+            "node": "Alert sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert failed (dead end)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

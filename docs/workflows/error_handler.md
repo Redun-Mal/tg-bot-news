@@ -34,3 +34,7 @@ Telegram send: 2 tries (see above — best-effort, not data-critical).
 ## Anti-duplicate protection
 
 None — every invocation represents a genuinely distinct error event, and the user should hear about each one. A source that's been broken for days will trigger `error_handler` (well, more precisely, its own `poll_rss_sources`-level `continueRegularOutput` branch — see the note in step 1 above about what does vs. doesn't reach here) repeatedly; that's a known MVP tradeoff (accept some potential noise) rather than something this workflow tries to throttle. If it becomes a real problem in practice, the fix belongs in `health_check`'s edge-triggered pattern, not here.
+
+## n8n JSON
+
+`n8n/workflows/error_handler.json` is **verified**: triggered live with a realistic mock error payload (`Error Trigger` supports manual test execution with pinned data), confirmed a real `workflow_logs` row written with the correct `workflow_name`/`message`/`metadata`, and confirmed the best-effort Telegram alert's own failure (fake `chat_id`) correctly dead-ends rather than erroring the workflow. Every other verified workflow (`add_source`, `remove_source`, `pause_source`, `resume_source`, `poll_rss_sources`, `deduplicate_posts`, `manage_interests`, `send_instant_alerts`, `daily_digest`) has had its **Settings → Error Workflow** set to point at this one, confirmed via the API.
