@@ -15,8 +15,9 @@ const GIVEAWAY_PATTERN = /розыгрыш|giveaway|подпишись\s+и\s+в
 const ADVERTISEMENT_PATTERN = /#реклама|#ad\b|реклама\s*\d{6,}|erid[:\s]/iu;
 
 // Short posts aren't dropped if they carry an urgency signal — a one-line
-// breaking-news alert can be more important than a long fluff post.
-const URGENCY_PATTERN =
+// breaking-news alert can be more important than a long fluff post. Exported
+// for reuse by heuristic-classify.ts's importance scoring.
+export const URGENCY_PATTERN =
   /срочно|внимание|важно|breaking|только что|чп\b|чрезвычайн|эвакуац|взрыв|авари|погиб|атак|отключ|землетрясен/iu;
 
 function isEffectivelyEmpty(normalizedText: string): boolean {

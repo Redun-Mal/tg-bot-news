@@ -1,0 +1,422 @@
+{
+  "name": "classify_heuristic",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Every 10 minutes (offset)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1600, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-interests",
+      "name": "User interests",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-1360, 0],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT interest FROM user_interests WHERE telegram_user_id = $1",
+        "options": {
+          "queryReplacement": "={{ [ $env.TELEGRAM_ALLOWED_USER_ID ] }}"
+        }
+      }
+    },
+    {
+      "id": "agg-interests",
+      "name": "Aggregate interests",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [-1120, 0],
+      "parameters": {
+        "aggregate": "aggregateIndividualFields",
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "interest"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-unresolved",
+      "name": "Unresolved posts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-880, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT p.id, p.title, p.raw_text, p.normalized_text, p.post_url FROM posts p LEFT JOIN news_sources ns ON ns.post_id = p.id WHERE ns.id IS NULL ORDER BY p.fetched_at LIMIT 50",
+        "options": {}
+      }
+    },
+    {
+      "id": "http-filter",
+      "name": "Filter check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-640, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HELPER_API_URL }}/filter-check",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ normalizedText: $json.normalized_text }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "keep",
+      "name": "Keep?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-400, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.keep }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "pg-insert-filtered",
+      "name": "Insert filtered news_item",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-160, 200],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO news_items (canonical_title, summary, categories, importance, relevance, confidence, language, keywords, is_advertisement, is_duplicate, processed_at) VALUES ($1, $2, '{other}', 1, 0, 1, 'ru', '{}', true, false, now()) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $('Unresolved posts').item.json.title, 'Отфильтровано до анализа: ' + $json.reason ] }}"
+        }
+      }
+    },
+    {
+      "id": "pg-link-filtered",
+      "name": "Link filtered post",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [80, 200],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO news_sources (news_item_id, post_id) VALUES ($1, $2) ON CONFLICT (post_id) DO NOTHING RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.id, $('Unresolved posts').item.json.id ] }}"
+        }
+      }
+    },
+    {
+      "id": "http-classify",
+      "name": "Heuristic classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-160, -200],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HELPER_API_URL }}/classify-heuristic",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $('Unresolved posts').item.json.title, rawText: $('Unresolved posts').item.json.raw_text, interests: $('Aggregate interests').first().json.interest }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-dedup-check",
+      "name": "Level-4 dedup check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [320, -200],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT $1::text AS title, $2::text AS summary, $3::text AS why_it_matters, $4::text[] AS categories, $5::int AS importance, $6::real AS relevance, $7::real AS confidence, $8::text AS language, $9::text[] AS keywords, $10::boolean AS is_advertisement, $11::boolean AS is_duplicate, $12::int AS post_id, (SELECT ni.id FROM news_items ni WHERE ni.created_at > now() - interval '48 hours'  AND (similarity(ni.canonical_title, $1) > 0.5 OR similarity(ni.summary, $2) > 0.5)  ORDER BY similarity(ni.canonical_title, $1) DESC LIMIT 1) AS matched_news_item_id",
+        "options": {
+          "queryReplacement": "={{ [ $json.title, $json.summary, $json.why_it_matters, $json.categories, $json.importance, $json.relevance, $json.confidence, $json.language, $json.keywords, $json.is_advertisement, $json.is_duplicate, $json.postId ] }}"
+        }
+      }
+    },
+    {
+      "id": "dedup-match",
+      "name": "Level-4 match?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [800, -200],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.matched_news_item_id != null }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "pg-link-existing",
+      "name": "Link to existing news_item",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1040, -320],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO news_sources (news_item_id, post_id) VALUES ($1, $2) ON CONFLICT (post_id) DO NOTHING RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.matched_news_item_id, $json.post_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "pg-insert-newsitem",
+      "name": "Insert new news_item",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1040, -80],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "WITH new_item AS (INSERT INTO news_items (canonical_title, summary, why_it_matters, categories, importance, relevance, confidence, language, keywords, is_advertisement, is_duplicate, processed_at) VALUES ($1, $2, $3, $4::text[], $5::int, $6::real, $7::real, $8, $9::text[], $10::boolean, $11::boolean, now()) RETURNING id) INSERT INTO news_sources (news_item_id, post_id) SELECT id, $12 FROM new_item RETURNING news_item_id",
+        "options": {
+          "queryReplacement": "={{ [ $json.title, $json.summary, $json.why_it_matters, $json.categories, $json.importance, $json.relevance, $json.confidence, $json.language, $json.keywords, $json.is_advertisement, $json.is_duplicate, $json.post_id ] }}"
+        }
+      }
+    },
+    {
+      "id": "code-merge-classification",
+      "name": "Merge classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [80, -200],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const postId = $('Unresolved posts').item.json.id;\nreturn { json: { ...$json, postId } };"
+      }
+    }
+  ],
+  "connections": {
+    "Every 10 minutes (offset)": {
+      "main": [
+        [
+          {
+            "node": "User interests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "User interests": {
+      "main": [
+        [
+          {
+            "node": "Aggregate interests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate interests": {
+      "main": [
+        [
+          {
+            "node": "Unresolved posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unresolved posts": {
+      "main": [
+        [
+          {
+            "node": "Filter check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter check": {
+      "main": [
+        [
+          {
+            "node": "Keep?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep?": {
+      "main": [
+        [
+          {
+            "node": "Heuristic classify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert filtered news_item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert filtered news_item": {
+      "main": [
+        [
+          {
+            "node": "Link filtered post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Heuristic classify": {
+      "main": [
+        [
+          {
+            "node": "Merge classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Level-4 dedup check": {
+      "main": [
+        [
+          {
+            "node": "Level-4 match?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Level-4 match?": {
+      "main": [
+        [
+          {
+            "node": "Link to existing news_item",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert new news_item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge classification": {
+      "main": [
+        [
+          {
+            "node": "Level-4 dedup check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
