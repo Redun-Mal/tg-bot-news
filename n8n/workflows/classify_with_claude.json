@@ -1,0 +1,325 @@
+{
+  "name": "classify_with_claude",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Every 10 minutes (offset)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1200, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-unresolved",
+      "name": "Unresolved posts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-960, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT p.id, p.title, p.raw_text, p.normalized_text, p.post_url FROM posts p LEFT JOIN news_sources ns ON ns.post_id = p.id WHERE ns.id IS NULL ORDER BY p.fetched_at LIMIT 50",
+        "options": {}
+      }
+    },
+    {
+      "id": "http-filter",
+      "name": "Filter check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-720, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HELPER_API_URL }}/filter-check",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ normalizedText: $json.normalized_text }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "keep",
+      "name": "Keep?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-480, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.keep }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "pg-insert-filtered",
+      "name": "Insert filtered news_item",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-240, 200],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO news_items (canonical_title, summary, categories, importance, relevance, confidence, language, keywords, is_advertisement, is_duplicate, processed_at) VALUES ($1, $2, '{other}', 1, 0, 1, 'ru', '{}', true, false, now()) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $('Unresolved posts').item.json.title, 'Отфильтровано до анализа: ' + $json.reason ] }}"
+        }
+      }
+    },
+    {
+      "id": "pg-link-filtered",
+      "name": "Link filtered post",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [0, 200],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO news_sources (news_item_id, post_id) VALUES ($1, $2) ON CONFLICT (post_id) DO NOTHING RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.id, $('Unresolved posts').item.json.id ] }}"
+        }
+      }
+    },
+    {
+      "id": "code-build-prompt",
+      "name": "Build Claude request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-240, -200],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const post = $('Unresolved posts').item.json;\nconst system = 'You are a news classifier. Categories: world, technology, programming, gaming, roblox, business, central_asia, other. Respond only via the classify_post tool. Do not invent facts. Translate summary to Russian if source is in English.';\nconst userText = 'Title: ' + post.title + '\\n\\nText: ' + post.raw_text;\nconst toolSchema = {\"name\": \"classify_post\", \"description\": \"Classify a news post\", \"input_schema\": {\"type\": \"object\", \"properties\": {\"title\": {\"type\": \"string\"}, \"summary\": {\"type\": \"string\"}, \"why_it_matters\": {\"type\": \"string\"}, \"categories\": {\"type\": \"array\", \"items\": {\"type\": \"string\", \"enum\": [\"world\", \"technology\", \"programming\", \"gaming\", \"roblox\", \"business\", \"central_asia\", \"other\"]}}, \"importance\": {\"type\": \"integer\", \"minimum\": 1, \"maximum\": 4}, \"relevance\": {\"type\": \"number\", \"minimum\": 0, \"maximum\": 1}, \"is_advertisement\": {\"type\": \"boolean\"}, \"is_duplicate\": {\"type\": \"boolean\"}, \"language\": {\"type\": \"string\"}, \"confidence\": {\"type\": \"number\", \"minimum\": 0, \"maximum\": 1}, \"keywords\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}}}, \"required\": [\"title\", \"summary\", \"why_it_matters\", \"categories\", \"importance\", \"relevance\", \"is_advertisement\", \"is_duplicate\", \"language\", \"confidence\", \"keywords\"]}};\nconst body = {\n  model: $env.CLAUDE_MODEL || 'claude-haiku-4-5',\n  max_tokens: 1024,\n  system,\n  messages: [{ role: 'user', content: userText }],\n  tools: [toolSchema],\n  tool_choice: { type: 'tool', name: 'classify_post' },\n};\nreturn { json: { body: JSON.stringify(body) } };"
+      }
+    },
+    {
+      "id": "http-claude",
+      "name": "Call Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, -200],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Claude API (no real key)"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-log-claude-fail",
+      "name": "Log Claude failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_logs (workflow_name, level, message) VALUES ('classify_with_claude', 'error', $1) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ 'Claude call failed for post ' + $('Unresolved posts').item.json.id ] }}"
+        }
+      }
+    },
+    {
+      "id": "code-extract-tool",
+      "name": "Extract tool call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, -300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const block = ($json.content || []).find(c => c.type === 'tool_use');\nreturn { json: { rawResponse: block ? JSON.stringify(block.input) : '' } };"
+      }
+    },
+    {
+      "id": "http-validate-classification",
+      "name": "Validate classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, -300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HELPER_API_URL }}/validate-classification",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ rawResponse: $json.rawResponse }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Every 10 minutes (offset)": {
+      "main": [
+        [
+          {
+            "node": "Unresolved posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unresolved posts": {
+      "main": [
+        [
+          {
+            "node": "Filter check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter check": {
+      "main": [
+        [
+          {
+            "node": "Keep?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep?": {
+      "main": [
+        [
+          {
+            "node": "Build Claude request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert filtered news_item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert filtered news_item": {
+      "main": [
+        [
+          {
+            "node": "Link filtered post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude request": {
+      "main": [
+        [
+          {
+            "node": "Call Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Claude": {
+      "main": [
+        [
+          {
+            "node": "Extract tool call",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Claude failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract tool call": {
+      "main": [
+        [
+          {
+            "node": "Validate classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "El0evc0X113sLWow"
+  }
+}
