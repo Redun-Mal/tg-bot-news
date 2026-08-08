@@ -1,4 +1,4 @@
-# 005: Two real n8n Postgres-node quirks (found by actually running a workflow)
+# 005: Real n8n node quirks found by actually running workflows
 
 `docs/decisions/003-n8n-workflow-strategy.md` explained why workflow JSON was spec-first and unverified for most of this project — no live n8n instance was available. Once a real Telegram bot token made it worth standing up n8n via its REST API (headless, no browser — owner-account bootstrap + session cookie + `/rest/workflows`), `health_check` became the first workflow actually built and executed for real. Two non-obvious bugs surfaced that silently produce wrong behavior with **no error at all**, which no amount of spec review would have caught. Apply both rules to every other workflow before assuming it works.
 
@@ -24,6 +24,15 @@ Confirmed live with 7 parameters (mixing strings, booleans, and a number) — ev
 
 Also: never pass a multi-key JSON blob as a single text parameter cast to `::jsonb`. Build it in SQL instead via `jsonb_build_object('key1', $1::type, 'key2', $2::type, ...)` from individual scalar parameters — sidesteps the comma-in-value problem entirely and is what `health_check`'s `Insert workflow_logs row` node actually does.
 
-## Consequence for the other 11 workflow specs
+## Quirk 3: `IF` node `exists`/`notExists` operators enforce strict typing on the value itself
 
-Every spec that describes a Postgres insert/update with more than a couple of dynamic values (`posts`, `news_items`, `sources`, `deliveries`, ...) needs the array-expression form for `queryReplacement`, and every spec with a "does X already exist?" lookup that might return zero rows needs `alwaysOutputData: true` on that lookup node if anything downstream depends on getting an item regardless. Neither of these is visible from reading the spec Markdown alone — both were found only by executing a real workflow against real Postgres and checking the actual table contents, not by trusting the execution's reported "success" status.
+Found while building `add_source`. Two variants of the same underlying issue:
+
+- Checking whether a `continueOnFail` HTTP node errored via `{ leftValue: "={{ $json.error }}", operator: { type: "string", operation: "notExists" } }` throws `Wrong type: ... is an object but was expecting a string` — a node's `error` field is a whole error object, not a string, and the `string`-typed operator validates against that regardless of the operation being an existence check.
+- Comparing a genuinely numeric `id` field (from a Postgres `SELECT`) the same way, with a `string`/`notEmpty` operator, throws `Wrong type: '4' is a number but was expecting a string`.
+
+**Fix**: don't use `exists`/`notExists`/`notEmpty` operators against fields of unpredictable or non-string type. Use a plain boolean expression instead: `{ leftValue: "={{ $json.error === undefined }}", rightValue: true, operator: { type: "boolean", operation: "equals" } }`. This sidesteps type inference entirely — the expression itself resolves to a boolean before the condition ever runs.
+
+## Consequence for the other workflow specs
+
+Every remaining spec needs: the array-expression form for `queryReplacement` on any insert/update with more than a couple of dynamic values (`posts`, `news_items`, `sources`, `deliveries`, ...); `alwaysOutputData: true` on any "does X already exist?" lookup that might return zero rows when something downstream depends on getting an item regardless; and boolean-expression conditions (not `exists`/`notExists`/`notEmpty` operators) on any `IF` node checking a field whose type isn't guaranteed to be a plain string. None of these three are visible from reading the spec Markdown alone — all three were found only by executing a real workflow against real Postgres/HTTP responses and checking actual results, not by trusting an execution's reported "success" status.

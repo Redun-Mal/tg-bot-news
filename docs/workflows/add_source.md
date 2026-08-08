@@ -55,3 +55,7 @@ HTTP reachability check: 3 tries, n8n's built-in fixed-interval retry (see `docs
 ## Anti-duplicate protection
 
 Two layers: an explicit `SELECT` check before insert (step 4, gives a clean user-facing message), and the `sources.channel_username` `UNIQUE` constraint as the final backstop (`ON CONFLICT DO NOTHING` on step 8, in case of a race between two concurrent `/add_source` calls for the same channel).
+
+## n8n JSON
+
+`n8n/workflows/add_source.json` is **verified**: built and executed against a real n8n instance, all three branches confirmed against real data (valid+new channel → `active` with a real RSSHub fetch; duplicate → clean message, no second insert; nonexistent channel → `error` status, real RSSHub 503 handled). One more `IF`-node gotcha found beyond `docs/decisions/005-n8n-postgres-node-quirks.md`: n8n's built-in `exists`/`notExists` condition operators enforce strict type validation against the _value itself_, and a `continueOnFail` HTTP node's error is a whole object, not a string — using the `string`/`notExists` operator on it throws `Wrong type: ... is an object but was expecting a string`. Fix: use a plain boolean expression instead, e.g. `leftValue: "={{ $json.error === undefined }}", rightValue: true, operator: { type: "boolean", operation: "equals" }` — sidesteps the type-inference issue entirely. Same fix applies to comparing a numeric `id` field with a `string` operator.

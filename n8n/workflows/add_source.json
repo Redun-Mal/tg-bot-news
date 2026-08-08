@@ -1,0 +1,428 @@
+{
+  "name": "add_source",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "On workflow call",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-200, 0],
+      "parameters": {}
+    },
+    {
+      "id": "validate",
+      "name": "Validate URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [40, 0],
+      "parameters": {
+        "jsCode": "const url = ($json.url || '').trim();\nconst m = url.match(/^https:\\/\\/t\\.me\\/(?!s\\/|joinchat\\/|\\+)([a-zA-Z0-9_]{5,32})\\/?$/);\nif (!m) {\n  return [{ json: { valid: false, telegramUserId: $json.telegramUserId, error: 'Ссылка не похожа на публичный Telegram-канал. Пример: https://t.me/example_channel' } }];\n}\nreturn [{ json: { valid: true, telegramUserId: $json.telegramUserId, channelUsername: m[1], url } }];"
+      }
+    },
+    {
+      "id": "if-valid",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [280, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "pg-select-existing",
+      "name": "Existing source?",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [520, -100],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT id, status FROM sources WHERE channel_username = $1",
+        "options": {
+          "queryReplacement": "={{ [ $json.channelUsername ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-exists",
+      "name": "Already exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [760, -100],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "set-exists-msg",
+      "name": "Already-exists message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1000, -180],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "msg1",
+              "name": "message",
+              "type": "string",
+              "value": "={{ 'Источник уже добавлен (статус: ' + $json.status + ').' }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "build-rss-url",
+      "name": "Build RSS URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, -20],
+      "parameters": {
+        "jsCode": "const channelUsername = $('Validate URL').first().json.channelUsername;\nconst url = $('Validate URL').first().json.url;\nconst rssUrl = `${$env.RSS_BASE_URL}/telegram/channel/${channelUsername}`;\nreturn [{ json: { channelUsername, url, rssUrl } }];"
+      }
+    },
+    {
+      "id": "http-check-rss",
+      "name": "Check RSS reachable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1240, -20],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.rssUrl }}",
+        "options": {
+          "timeout": 10000
+        }
+      }
+    },
+    {
+      "id": "if-rss-ok",
+      "name": "RSS reachable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1480, -20],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.error === undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "pg-insert-active",
+      "name": "Insert source (active)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1720, -120],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO sources (url, channel_username, rss_url, status, last_checked_at, last_success_at) VALUES ($1, $2, $3, 'active', now(), now()) ON CONFLICT (channel_username) DO NOTHING RETURNING id, channel_username",
+        "options": {
+          "queryReplacement": "={{ [ $('Build RSS URL').first().json.url, $('Build RSS URL').first().json.channelUsername, $('Build RSS URL').first().json.rssUrl ] }}"
+        }
+      }
+    },
+    {
+      "id": "set-active-msg",
+      "name": "Added message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1960, -120],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "msg2",
+              "name": "message",
+              "type": "string",
+              "value": "={{ 'Канал добавлен: ' + $json.channel_username }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-insert-error",
+      "name": "Insert source (error)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1720, 80],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO sources (url, channel_username, rss_url, status, last_checked_at) VALUES ($1, $2, $3, 'error', now()) ON CONFLICT (channel_username) DO NOTHING RETURNING id, channel_username",
+        "options": {
+          "queryReplacement": "={{ [ $('Build RSS URL').first().json.url, $('Build RSS URL').first().json.channelUsername, $('Build RSS URL').first().json.rssUrl ] }}"
+        }
+      }
+    },
+    {
+      "id": "set-error-msg",
+      "name": "Error-status message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1960, 80],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "msg3",
+              "name": "message",
+              "type": "string",
+              "value": "Канал добавлен, но RSS сейчас недоступен (статус: error). Проверю автоматически позже."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "join",
+      "name": "Join",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2200, -20],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "On workflow call": {
+      "main": [
+        [
+          {
+            "node": "Validate URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate URL": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Existing source?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Existing source?": {
+      "main": [
+        [
+          {
+            "node": "Already exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already exists?": {
+      "main": [
+        [
+          {
+            "node": "Already-exists message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build RSS URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already-exists message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build RSS URL": {
+      "main": [
+        [
+          {
+            "node": "Check RSS reachable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check RSS reachable": {
+      "main": [
+        [
+          {
+            "node": "RSS reachable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS reachable?": {
+      "main": [
+        [
+          {
+            "node": "Insert source (active)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert source (error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert source (active)": {
+      "main": [
+        [
+          {
+            "node": "Added message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Added message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert source (error)": {
+      "main": [
+        [
+          {
+            "node": "Error-status message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error-status message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

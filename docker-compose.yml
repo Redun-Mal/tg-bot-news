@@ -58,6 +58,9 @@ services:
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
       N8N_HOST: ${N8N_HOST}
       N8N_PROTOCOL: ${N8N_PROTOCOL}
+      # Public URL Telegram/webhook nodes should use, e.g. an ngrok tunnel
+      # during dev. Leave unset for a deployment with its own public domain.
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       # Local dev over plain HTTP — n8n's auth cookie defaults to Secure,
       # which browsers/curl won't send back over non-HTTPS. Fine for
