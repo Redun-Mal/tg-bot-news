@@ -17,28 +17,22 @@ None (self-triggered).
 ## Node sequence
 
 1. **Schedule Trigger**.
-2. **Postgres — Execute Query**: `SELECT 1` (Postgres reachability is proven by this node simply not failing — no branching needed here, its own success/failure _is_ the signal, handled at step 6).
-3. **HTTP Request** — `GET {{RSS_BASE_URL}}/healthz`, `onError: continueRegularOutput` (don't abort the workflow — a downed dependency is exactly the case this workflow exists to detect and report, not crash on).
-4. **HTTP Request** — `GET {{HELPER_API_URL}}/health`, same `onError` setting.
-5. **Postgres — Execute Query**: `SELECT count(*) FROM workflow_logs WHERE workflow_name = 'classify_with_claude' AND level = 'error' AND created_at > now() - interval '30 minutes'`.
-6. **Merge** (combine the four branches above into one item) → **Code** — build a status object:
-   ```json
-   {
-     "postgres": true,
-     "rsshub": true,
-     "helper_api": true,
-     "claude_recent_errors": 0,
-     "healthy": true
-   }
-   ```
-   (`healthy` is `false` if any of `postgres`/`rsshub`/`helper_api` failed, or `claude_recent_errors` is above a small threshold, e.g. `>= 3`.)
-7. **Postgres — Execute Query**: fetch the most recent `workflow_logs` row where `workflow_name = 'health_check'`, to compare against — this is what makes alerting edge-triggered instead of level-triggered.
-8. **Postgres — Insert** into `workflow_logs`: `level = healthy ? 'info' : 'warn'`, `message`, `metadata = <status object from step 6>`.
-9. **IF** — state changed since the previous check (`healthy` now vs. the previous row's `healthy` in its `metadata`)?
-   - **true, now unhealthy** → **Telegram — Send Message**: `"⚠️ Проблема с сервисом: {{failed components}}."`
-   - **true, now healthy again** → **Telegram — Send Message**: `"✅ Всё снова работает."`
-   - **false (no change)** → do nothing.
-10. Workflow ends.
+2. **Postgres — Execute Query**: `SELECT 1`, `continueOnFail: true` (reachability is proven by whether this node errors, not by its result).
+3. **Code**: `{ postgres: $input.first().json.error === undefined }`.
+4. **HTTP Request** — `GET {{ $env.RSS_BASE_URL }}/healthz`, `continueOnFail: true`.
+5. **Code**: merge in `{ rsshub: <same error-check> }`.
+6. **HTTP Request** — `GET {{ $env.HELPER_API_URL }}/health`, `continueOnFail: true`.
+7. **Code**: merge in `{ helper_api: <same error-check> }`.
+8. **Postgres — Execute Query**: `SELECT count(*)::int AS recent_errors FROM workflow_logs WHERE workflow_name = 'classify_with_claude' AND level = 'error' AND created_at > now() - interval '30 minutes'`.
+9. **Code** — build the final status object: `{ ...prev, claude_recent_errors, healthy }`, where `healthy = postgres && rsshub && helper_api && claude_recent_errors < 3`.
+10. **Postgres — Execute Query**: `SELECT metadata FROM workflow_logs WHERE workflow_name = 'health_check' ORDER BY created_at DESC LIMIT 1`. **Must set `alwaysOutputData: true` on this node** — on the very first-ever run there's no prior row, so this returns 0 rows, and a Postgres node with 0 matching rows emits 0 output items by default, silently stopping every downstream node with no error at all. See `docs/decisions/005-n8n-postgres-node-quirks.md`.
+11. **Code**: `stateChanged = prevHealthy !== undefined && prevHealthy !== healthy`.
+12. **Postgres — Insert**: `INSERT INTO workflow_logs (workflow_name, level, message, metadata) VALUES ('health_check', $1, $2, jsonb_build_object('postgres', $3::boolean, 'rsshub', $4::boolean, 'helper_api', $5::boolean, 'claude_recent_errors', $6::int, 'healthy', $7::boolean)) RETURNING id`. Query Parameters (`options.queryReplacement`) must be **one single expression returning a real array** — `={{ [ level, message, postgres, rsshub, helper_api, claude_recent_errors, healthy ] }}` — not several comma-joined `={{ }}` blocks, which silently drops parameters past ~6. See `docs/decisions/005-n8n-postgres-node-quirks.md`.
+13. **IF** — `stateChanged == true`?
+    - **true, now unhealthy** → **Telegram — Send Message**: `"⚠️ Проблема с сервисом: {{failed components}}."`
+    - **true, now healthy again** → **Telegram — Send Message**: `"✅ Всё снова работает."`
+    - **false (no change)** → **NoOp**.
+14. Workflow ends.
 
 ## Output
 
@@ -58,4 +52,4 @@ Not the `deliveries`-table kind (this workflow doesn't send news) — the releva
 
 ## n8n JSON
 
-A best-effort draft lives at `n8n/workflows/health_check.json` — this workflow is close to linear (no nested loops, unlike `poll_rss_sources`), so it was judged worth attempting per the plan's Decision C. It is **unverified** — hand-authored without a live n8n instance to import against. Treat it as a starting point to import and fix up, not a working artifact.
+`n8n/workflows/health_check.json` is **verified**: imported into a real n8n instance (bootstrapped headlessly via its REST API), credentials wired up, executed end to end, and a real row confirmed in `workflow_logs` via `psql` — including the state-comparison logic working correctly on a first-ever run. Update the credential IDs to your own after importing (this export's IDs point at the dev instance's credentials, which won't exist in yours). Two real n8n Postgres-node bugs were found and fixed while getting this to actually work — see `docs/decisions/005-n8n-postgres-node-quirks.md` before building any of the other 11 workflows, all of which have the same failure modes waiting in their specs.

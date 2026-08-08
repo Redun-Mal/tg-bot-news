@@ -59,6 +59,10 @@ services:
       N8N_HOST: ${N8N_HOST}
       N8N_PROTOCOL: ${N8N_PROTOCOL}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      # Local dev over plain HTTP — n8n's auth cookie defaults to Secure,
+      # which browsers/curl won't send back over non-HTTPS. Fine for
+      # localhost-only access; revisit if this is ever exposed beyond that.
+      N8N_SECURE_COOKIE: 'false'
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE}
       TZ: ${TZ}
       # Non-secret operational config read via $env in workflow expressions
