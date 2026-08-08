@@ -1,0 +1,283 @@
+{
+  "name": "resume_source",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "On workflow call",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-200, 0],
+      "parameters": {}
+    },
+    {
+      "id": "pg-select",
+      "name": "Find source",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [40, 0],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT id, status, channel_username FROM sources WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [ $json.id ] }}"
+        }
+      }
+    },
+    {
+      "id": "found",
+      "name": "Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [280, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "not-found-msg",
+      "name": "Not found message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [520, -200],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "Источник с таким id не найден."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "valid-state",
+      "name": "Valid state?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [520, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status === 'paused' || $json.status === 'error' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "invalid-state-msg",
+      "name": "Invalid state message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [760, 100],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "={{ 'Источник нельзя изменить (текущий статус: ' + $('Find source').first().json.status + ').' }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-update",
+      "name": "Update status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [760, -100],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "UPDATE sources SET status = 'active', error_count = 0, updated_at = now() WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [ $json.id ] }}"
+        }
+      }
+    },
+    {
+      "id": "success-msg",
+      "name": "Success message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1000, -100],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "={{ 'Источник ' + $('Find source').first().json.channel_username + ' снова активен.' }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "join",
+      "name": "Join",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1240, 0],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "On workflow call": {
+      "main": [
+        [
+          {
+            "node": "Find source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find source": {
+      "main": [
+        [
+          {
+            "node": "Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Found?": {
+      "main": [
+        [
+          {
+            "node": "Valid state?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not found message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid state?": {
+      "main": [
+        [
+          {
+            "node": "Update status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid state message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update status": {
+      "main": [
+        [
+          {
+            "node": "Success message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Success message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invalid state message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Not found message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -43,3 +43,7 @@ None needed — a single idempotent UPDATE.
 ## Anti-duplicate / idempotency protection
 
 Re-running `/remove_source` on an already-removed source is a no-op: step 3's `AND status != 'removed'` makes it fall into the "not found" branch rather than re-updating, so the user gets a clear "already removed" style message instead of a silent success that implies something changed.
+
+## n8n JSON
+
+`n8n/workflows/remove_source.json` is **verified**: built and executed against a real n8n instance, both branches confirmed (existing source correctly soft-deleted, and idempotent re-run correctly falls into the "not found" branch). Built applying the fixes in `docs/decisions/005-n8n-postgres-node-quirks.md` from the start — no new issues found.

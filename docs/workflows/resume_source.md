@@ -42,3 +42,7 @@ None needed — single idempotent UPDATE guarded by an explicit state check.
 ## Anti-duplicate / idempotency protection
 
 The `status IN ('paused', 'error')` guard prevents resuming an already-active or removed source. Resetting `error_count = 0` on resume gives an `error`-status source a clean slate rather than immediately re-tripping whatever `error_count` threshold `poll_rss_sources` uses to flag it again.
+
+## n8n JSON
+
+`n8n/workflows/resume_source.json` is **verified**: confirmed live that a paused source resumes to `active` with `error_count` reset to 0. See `docs/decisions/005-n8n-postgres-node-quirks.md` for the general n8n node fixes this and every other workflow apply.

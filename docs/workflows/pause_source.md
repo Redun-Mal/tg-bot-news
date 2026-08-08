@@ -42,3 +42,7 @@ None needed — single idempotent UPDATE guarded by an explicit state check.
 ## Anti-duplicate / idempotency protection
 
 The `status == 'active'` guard (step 3) prevents pausing an already-paused, errored, or removed source, so re-sending the same command twice can't silently do something unexpected — the second call falls into the "can't pause" branch with an explanatory message.
+
+## n8n JSON
+
+`n8n/workflows/pause_source.json` is **verified**: both branches confirmed live (active source correctly paused; re-pausing an already-paused source correctly rejected with a clear message). See `docs/decisions/005-n8n-postgres-node-quirks.md` for the general n8n node fixes this and every other workflow apply.

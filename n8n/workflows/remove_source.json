@@ -1,0 +1,229 @@
+{
+  "name": "remove_source",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "On workflow call",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-200, 0],
+      "parameters": {}
+    },
+    {
+      "id": "classify",
+      "name": "Classify id/url",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [40, 0],
+      "parameters": {
+        "jsCode": "const raw = String($json.idOrUrl || '').trim();\nlet id = null, channelUsername = null;\nif (/^\\d+$/.test(raw)) {\n  id = parseInt(raw, 10);\n} else {\n  const m = raw.match(/(?:https:\\/\\/t\\.me\\/)?([a-zA-Z0-9_]{5,32})\\/?$/);\n  channelUsername = m ? m[1] : raw;\n}\nreturn [{ json: { id, channelUsername } }];"
+      }
+    },
+    {
+      "id": "pg-select",
+      "name": "Find source",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [280, 0],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT id, status, channel_username FROM sources WHERE (id = $1 OR channel_username = $2) AND status != 'removed'",
+        "options": {
+          "queryReplacement": "={{ [ $json.id, $json.channelUsername ] }}"
+        }
+      }
+    },
+    {
+      "id": "found?",
+      "name": "Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [520, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "not-found-message",
+      "name": "Not found message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [760, -100],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "Источник не найден или уже удалён."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-update",
+      "name": "Mark removed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [760, 100],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "UPDATE sources SET status = 'removed', updated_at = now() WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [ $json.id ] }}"
+        }
+      }
+    },
+    {
+      "id": "removed-message",
+      "name": "Removed message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1000, 100],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m",
+              "name": "message",
+              "type": "string",
+              "value": "={{ 'Источник удалён: ' + $('Find source').first().json.channel_username }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "join",
+      "name": "Join",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1240, 0],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "On workflow call": {
+      "main": [
+        [
+          {
+            "node": "Classify id/url",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify id/url": {
+      "main": [
+        [
+          {
+            "node": "Find source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find source": {
+      "main": [
+        [
+          {
+            "node": "Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Found?": {
+      "main": [
+        [
+          {
+            "node": "Mark removed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not found message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark removed": {
+      "main": [
+        [
+          {
+            "node": "Removed message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Removed message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Not found message": {
+      "main": [
+        [
+          {
+            "node": "Join",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
