@@ -1,0 +1,176 @@
+{
+  "name": "deduplicate_posts",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Every 10 minutes (offset)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-400, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-unresolved",
+      "name": "Unresolved posts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-160, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT p.id, p.title, p.normalized_text, p.content_hash FROM posts p LEFT JOIN news_sources ns ON ns.post_id = p.id WHERE ns.id IS NULL AND p.fetched_at < now() - interval '1 minute' ORDER BY p.fetched_at LIMIT 100",
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-find-match",
+      "name": "Find similar resolved post",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [80, 0],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT ns.news_item_id, p2.id AS matched_post_id, similarity(p2.normalized_text, $1) AS text_sim, similarity(p2.title, $2) AS title_sim FROM posts p2 JOIN news_sources ns ON ns.post_id = p2.id WHERE p2.fetched_at > now() - interval '48 hours' AND (p2.content_hash = $3 OR similarity(p2.normalized_text, $1) > 0.6 OR similarity(p2.title, $2) > 0.5) ORDER BY text_sim DESC LIMIT 1",
+        "options": {
+          "queryReplacement": "={{ [ $json.normalized_text, $json.title, $json.content_hash ] }}"
+        }
+      }
+    },
+    {
+      "id": "if-match",
+      "name": "Match found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [320, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.news_item_id !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "pg-link",
+      "name": "Link to existing news_item",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [560, -100],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres — tg_news"
+        }
+      },
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "INSERT INTO news_sources (news_item_id, post_id) VALUES ($1, $2) ON CONFLICT (post_id) DO NOTHING RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.news_item_id, $('Unresolved posts').item.json.id ] }}"
+        }
+      }
+    },
+    {
+      "id": "noop-no-match",
+      "name": "No match, leave unresolved",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [560, 100],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Every 10 minutes (offset)": {
+      "main": [
+        [
+          {
+            "node": "Unresolved posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unresolved posts": {
+      "main": [
+        [
+          {
+            "node": "Find similar resolved post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find similar resolved post": {
+      "main": [
+        [
+          {
+            "node": "Match found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match found?": {
+      "main": [
+        [
+          {
+            "node": "Link to existing news_item",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No match, leave unresolved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

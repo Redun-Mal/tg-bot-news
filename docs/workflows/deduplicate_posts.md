@@ -76,3 +76,7 @@ CREATE INDEX posts_title_trgm_idx ON posts USING gin (title gin_trgm_ops);
 ```
 
 Without these, `similarity()` still works correctly, just as a sequential scan — fine at MVP scale (single user, modest channel count), worth adding once post volume grows enough for it to matter.
+
+## n8n JSON
+
+`n8n/workflows/deduplicate_posts.json` is **verified**: built and executed against a real n8n instance. Confirmed live: a near-duplicate post from a different channel correctly matched (0.63 text / 0.61 title similarity) and linked into the existing `news_item` via `news_sources`; a genuinely unrelated post correctly found no match and stayed unresolved. No new n8n quirks beyond `docs/decisions/005-n8n-postgres-node-quirks.md` — applying all four from the start again meant this workflow worked on the first real execution.
